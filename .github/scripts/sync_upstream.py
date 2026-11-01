@@ -72,7 +72,18 @@ def sync(repo, upstream="XTLS/Xray-core", base="main"):
         command("git", "commit", "-m", f"Record conflicts for Xray-core release {tag}")
         body = f"Upstream {tag} ({sha}) could not be merged. This draft contains ONLY a conflict record, not the update. Merge the recorded upstream commit into this branch locally, resolve conflicts, remove .github/upstream-conflict.json, and push. Run CI before marking ready.\n\nConflicting files:\n" + "\n".join(f"- `{p}`" for p in conflicts)
     else:
-        body = f"Merge stable Xray-core release {tag}, commit {sha}, into ElXray. Existing fork commits are retained. Required CI and branch rules must pass before merging. This PR does not deploy to servers or publish a GitHub Release."
+        # Upstream can upgrade protoc-gen-go and protoc-gen-go-grpc without knowing
+        # about this fork's extra .proto files. Regenerate all tracked/new outputs
+        # on the update branch *before* opening the PR, so strict CI remains useful.
+        # A failure stops the update; never bypass the check or push to main.
+        command("go", "run", "./infra/vprotogen/main.go", "-mode", "generate", "-pwd", "./")
+        command("git", "add", "-A", "--", ":(glob)**/*.pb.go")
+        staged = command("git", "diff", "--cached", "--quiet", check=False)
+        if staged.returncode == 1:
+            command("git", "commit", "-m", f"Regenerate Protobuf after Xray-core {tag}")
+        elif staged.returncode != 0:
+            raise RuntimeError(staged.stderr)
+        body = f"Merge stable Xray-core release {tag}, commit {sha}, into ElXray. Regenerated local Protobuf files if needed. Existing fork commits are retained. Required CI and branch rules must pass before merging. This PR does not deploy to servers or publish a GitHub Release."
     command("git", "push", "origin", f"HEAD:refs/heads/{branch}")
     args = ["pr", "create", "--repo", repo, "--base", base, "--head", branch, "--title", f"Update Xray-core to {tag}", "--body", body]
     if draft:
