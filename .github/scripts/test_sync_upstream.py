@@ -74,6 +74,11 @@ class SyncTest(unittest.TestCase):
                     args = (*args[:3], str(self.upstream), *args[4:])
                 return original(*args, check=check)
             self.calls.append(args)
+            if args[0] == "go" and args[1:3] == ("run", "./infra/vprotogen/main.go"):
+                target = Path("app/policy/command/command.pb.go")
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("// regenerated fixture\n")
+                return subprocess.CompletedProcess(args, 0, "", "")
             if args[1:3] == ("pr", "list"):
                 output = json.dumps(pending or [])
             elif args[1:3] == ("pr", "create"):
@@ -100,6 +105,9 @@ class SyncTest(unittest.TestCase):
         self.execute()
         self.assertTrue(Path("fork.txt").exists())
         self.assertTrue(Path("upstream.txt").exists())
+        self.assertTrue(any(c[0:3] == ("go", "run", "./infra/vprotogen/main.go") for c in self.calls))
+        self.assertEqual(self.run_git("show", "HEAD:app/policy/command/command.pb.go").stdout,
+                         "// regenerated fixture\n")
         self.assertTrue(any(c[1:3] == ("api", "graphql") for c in self.calls))
 
     def test_conflict_creates_only_a_draft_record(self):
@@ -110,6 +118,7 @@ class SyncTest(unittest.TestCase):
         self.assertIn("shared.txt", record["conflicts"])
         self.assertTrue(any("--draft" in c for c in self.calls))
         self.assertFalse(any(c[1:3] == ("api", "graphql") for c in self.calls))
+        self.assertFalse(any(c[0] == "go" for c in self.calls))
 
     def test_missing_rules_never_enable_auto_merge(self):
         self.release()
@@ -141,6 +150,7 @@ class SyncTest(unittest.TestCase):
     def test_already_included_release_does_not_create_pr(self):
         self.release(changed=False)
         self.execute()
+        self.assertFalse(any(c[0] == "go" for c in self.calls))
         self.assertFalse(any(c[1:3] == ("pr", "create") for c in self.calls))
 
     def test_open_update_is_not_overwritten(self):
