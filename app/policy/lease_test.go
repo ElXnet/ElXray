@@ -54,7 +54,7 @@ func TestSignedControlLeaseRequiresNodeAndAbsoluteExpiry(t *testing.T) {
 	}
 	now := time.Now().Unix()
 	ticket := ControlLease{NodeID: node, Subscription: "lab", Sequence: 1,
-		NotBefore: now, NotAfter: now + 15}
+		NotBefore: now, NotAfter: now + 15, CeilingUp: 100, CeilingDown: 200}
 	sign := func(tick ControlLease) ControlLease {
 		tick.Signature = ed25519.Sign(key, ControlLeaseTranscript(tick))
 		return tick
@@ -66,6 +66,8 @@ func TestSignedControlLeaseRequiresNodeAndAbsoluteExpiry(t *testing.T) {
 		{NodeID: node, Subscription: "lab", Sequence: 1, NotBefore: now, NotAfter: now + 120},
 		{NodeID: node, Subscription: "lab", Sequence: 1, NotBefore: now - 60, NotAfter: now + 15},
 		{NodeID: node, Subscription: "lab", Sequence: 0, NotBefore: now, NotAfter: now + 15},
+		{NodeID: node, Subscription: "lab", Sequence: 1, NotBefore: now, NotAfter: now + 15, CeilingUp: 50, CeilingDown: 200},
+		{NodeID: node, Subscription: "lab", Sequence: 1, NotBefore: now, NotAfter: now + 15, CeilingUp: 100, CeilingDown: 80},
 	} {
 		if err := m.RenewControlLease(sign(bad)); err == nil {
 			t.Fatalf("accepted invalid ticket: %+v", bad)
@@ -86,6 +88,7 @@ func TestSignedControlLeaseRequiresNodeAndAbsoluteExpiry(t *testing.T) {
 	ticket.NotAfter = now + 16
 	tamper := sign(ticket)
 	tamper.NotAfter = now + 25
+	tamper.CeilingUp = 1000
 	if err := m.RenewControlLease(tamper); err == nil {
 		t.Fatal("tampered unsigned expiry accepted")
 	}
