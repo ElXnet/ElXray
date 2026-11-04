@@ -99,14 +99,26 @@ func (l *Limits) RequireLease() {
 // extend its original lifetime. It may only increase, never roll back.
 func (l *Limits) RenewLease(deadline time.Time) {
 	l.mu.Lock()
-	defer l.mu.Unlock()
-	if !l.leaseRequired || !deadline.After(time.Now()) || !deadline.After(l.leaseDeadline) {
+	now := time.Now()
+	if !l.leaseRequired || !deadline.After(now) || !deadline.After(l.leaseDeadline) {
+		l.mu.Unlock()
 		return
+	}
+	// An expired lease requires a fresh VPN handshake. Even if the watchdog
+	// has not yet fired, a late renewal must not resurrect old idle sockets.
+	var stopped map[*connectionStop]struct{}
+	if l.leaseDue(now) && !l.leaseTripped {
+		stopped = l.connections
+		l.connections = nil
 	}
 	l.leaseDeadline = deadline
 	l.leaseTripped = false
 	close(l.changed)
 	l.changed = make(chan struct{})
+	l.mu.Unlock()
+	for f := range stopped {
+		f.close()
+	}
 }
 
 func (l *Limits) leaseDue(now time.Time) bool {
