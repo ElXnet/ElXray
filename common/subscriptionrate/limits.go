@@ -122,7 +122,7 @@ func (l *Limits) RenewLease(deadline time.Time) {
 }
 
 func (l *Limits) leaseDue(now time.Time) bool {
-	return l.leaseRequired && !now.Before(l.leaseDeadline)
+	return l.leaseRequired && (l.leaseTripped || !now.Before(l.leaseDeadline))
 }
 
 // SweepLease aborts ALL tracked sockets after expiry, including idle
