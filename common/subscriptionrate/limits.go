@@ -68,7 +68,7 @@ type connectionStop struct {
 func (l *Limits) TrackConnection(close func()) (func(), error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.disabled || l.leaseDue(time.Now()) {
+	if l.disabled || l.barrierActive || l.leaseDue(time.Now()) {
 		return nil, ErrDisabled
 	}
 	entry := &connectionStop{close: close}
@@ -146,6 +146,44 @@ func (l *Limits) SweepLease(now time.Time) bool {
 	return true
 }
 
+// DrainForRateBarrier temporarily denies new subscription flows, cancels
+// every previously admitted connection, and waits until all have exited.
+// The signed barrier MUST NOT be produced before this returns nil. In
+// particular an ordinary policy ACK cannot substitute for this drain.
+func (l *Limits) DrainForRateBarrier(ctx context.Context) error {
+	l.mu.Lock()
+	if l.barrierActive {
+		l.mu.Unlock()
+		return errors.New("subscription rate barrier already in progress")
+	}
+	l.barrierActive = true
+	close(l.changed)
+	l.changed = make(chan struct{})
+	stops := make([]func(),0,len(l.connections))
+	for c := range l.connections {stops = append(stops,c.close)}
+	l.mu.Unlock()
+	for _,stop := range stops {stop()}
+	defer func() {
+		l.mu.Lock()
+		l.barrierActive = false
+		close(l.changed)
+		l.changed = make(chan struct{})
+		l.mu.Unlock()
+	}()
+	ticker:=time.NewTicker(10*time.Millisecond)
+	defer ticker.Stop()
+	for {
+		l.mu.Lock()
+		remaining:=len(l.connections)
+		l.mu.Unlock()
+		if remaining==0 {return nil}
+		select {
+		case <-ctx.Done():return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
 // Update atomically changes both rates and admission state, preserving credit.
 // Callers validate rates against MaxRate before applying an external policy.
 func (l *Limits) Update(uplink, downlink uint64, disabled bool) {
@@ -173,7 +211,7 @@ func (b *Budget) AllowN(now time.Time, n int) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	b.refill(now)
-	if n < 0 || n > Burst || l.disabled || l.leaseDue(now) {
+	if n < 0 || n > Burst || l.disabled || l.barrierActive || l.leaseDue(now) {
 		return false
 	}
 	if b.rate != 0 && b.tokens < float64(n) {
@@ -196,7 +234,7 @@ func (b *Budget) WaitN(ctx context.Context, n int) error {
 		l.mu.Lock()
 		now := time.Now()
 		b.refill(now)
-		if l.disabled || l.leaseDue(now) {
+		if l.disabled || l.barrierActive || l.leaseDue(now) {
 			l.mu.Unlock()
 			return ErrDisabled
 		}
