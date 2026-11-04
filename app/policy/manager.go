@@ -3,6 +3,11 @@ package policy
 import (
 	"context"
 	"crypto/rand"
+	"crypto/ed25519"
+	"encoding/base64"
+	"errors"
+	"time"
+	"github.com/google/uuid"
 	"os"
 	"slices"
 	"strings"
@@ -26,6 +31,10 @@ type Instance struct {
 	usageSequences       map[string]uint64
 	subscriptionPolicies map[string]subscriptionrate.Policy
 	profileGate          *sessionfence.Registry
+	leasePublicKey ed25519.PublicKey
+	leaseNodeID uuid.UUID
+	leaseSeq map[string]int64
+	leaseCancel context.CancelFunc
 }
 
 // New creates new Policy manager instance.
@@ -45,6 +54,29 @@ func New(ctx context.Context, config *Config) (*Instance, error) {
 	if config.RequireSubscription {
 		m.unmanaged = subscriptionrate.New(0, 0)
 		m.unmanaged.Update(0, 0, true)
+	}
+	if os.Getenv("ELXRAY_REQUIRE_CONTROL_LEASE") == "1" {
+		if !config.RequireSubscription || len(m.subscriptions) == 0 {
+			return nil, errors.New("Control lease enforcement requires managed subscriptions")
+		}
+		pub, err := base64.StdEncoding.DecodeString(os.Getenv("ELXRAY_CONTROL_LEASE_PUBLIC_KEY"))
+		if err != nil || len(pub) != ed25519.PublicKeySize {
+			return nil, errors.New("Control lease public key must be provisioned")
+		}
+		node, err := uuid.Parse(os.Getenv("ELXRAY_CONTROL_LEASE_NODE_UUID"))
+		if err != nil || node == uuid.Nil {
+			return nil, errors.New("Control lease requires a pinned node UUID")
+		}
+		m.leasePublicKey = ed25519.PublicKey(pub)
+		m.leaseNodeID = node
+		m.leaseSeq = make(map[string]int64)
+		seen := make(map[*subscriptionrate.Limits]bool)
+		for _, limit := range m.subscriptions {
+			if !seen[limit] {
+				limit.RequireLease()
+				seen[limit] = true
+			}
+		}
 	}
 	for id, p := range config.Subscriptions {
 		revision := p.Revision
@@ -108,6 +140,35 @@ func (m *Instance) ForSystem() policy.System {
 
 // Start implements common.Runnable.Start().
 func (m *Instance) Start() error {
+	if len(m.leasePublicKey) == 0 {
+		return nil
+	}
+	m.subscriptionMu.Lock()
+	if m.leaseCancel != nil {
+		m.subscriptionMu.Unlock()
+		return nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	m.leaseCancel = cancel
+	m.subscriptionMu.Unlock()
+	go func() {
+		t := time.NewTicker(100 * time.Millisecond)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case now := <-t.C:
+				seen := make(map[*subscriptionrate.Limits]bool)
+				for _, limits := range m.subscriptions {
+					if !seen[limits] {
+						limits.SweepLease(now)
+						seen[limits] = true
+					}
+				}
+			}
+		}
+	}()
 	return nil
 }
 
@@ -115,6 +176,10 @@ func (m *Instance) Start() error {
 func (m *Instance) Close() error {
 	m.subscriptionMu.Lock()
 	defer m.subscriptionMu.Unlock()
+	if m.leaseCancel != nil {
+		m.leaseCancel()
+		m.leaseCancel = nil
+	}
 	if m.store != nil {
 		m.store.failed = true
 		return m.store.lock.Close()
