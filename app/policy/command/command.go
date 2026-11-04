@@ -25,7 +25,7 @@ type service struct {
 func (s *service) Register(server *grpc.Server) {
 	RegisterSubscriptionServiceServer(server, s)
 	registerProfileFence(server, s.manager)
-	registerControlLease(server,s.manager)
+	registerControlLease(server, s.manager)
 }
 
 // The standard Commander transport has no authentication. Refuse remote peers

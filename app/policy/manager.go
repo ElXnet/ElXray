@@ -2,16 +2,16 @@ package policy
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/base64"
 	"errors"
-	"time"
 	"github.com/google/uuid"
 	"os"
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/xtls/xray-core/common"
 	"github.com/xtls/xray-core/common/sessionfence"
@@ -31,10 +31,10 @@ type Instance struct {
 	usageSequences       map[string]uint64
 	subscriptionPolicies map[string]subscriptionrate.Policy
 	profileGate          *sessionfence.Registry
-	leasePublicKey ed25519.PublicKey
-	leaseNodeID uuid.UUID
-	leaseSeq map[string]int64
-	leaseCancel context.CancelFunc
+	leasePublicKey       ed25519.PublicKey
+	leaseNodeID          uuid.UUID
+	leaseSeq             map[string]int64
+	leaseCancel          context.CancelFunc
 }
 
 // New creates new Policy manager instance.
