@@ -22,7 +22,10 @@ type service struct {
 	manager policy.SubscriptionController
 }
 
-func (s *service) Register(server *grpc.Server) { RegisterSubscriptionServiceServer(server, s) }
+func (s *service) Register(server *grpc.Server) {
+	RegisterSubscriptionServiceServer(server, s)
+	registerProfileFence(server, s.manager)
+}
 
 // The standard Commander transport has no authentication. Refuse remote peers
 // even if someone accidentally exposes its listener. Remote agents use SSH/WG
