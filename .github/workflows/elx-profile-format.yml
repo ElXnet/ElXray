@@ -1,0 +1,70 @@
+name: Format ElXray session fence code
+
+on:
+  push:
+    branches: [restrict-runtime-unlimited]
+    paths:
+      - "app/policy/profile_fence*.go"
+      - "app/policy/command/profile_fence*.go"
+      - "common/sessionfence/**"
+      - "proxy/vless/inbound/inbound.go"
+      - "app/policy/persistence.go"
+      - "app/policy/runtime.go"
+      - "app/policy/manager.go"
+      - "features/policy/policy.go"
+      - ".github/workflows/elx-profile-format.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  gofmt:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: restrict-runtime-unlimited
+          persist-credentials: true
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Format only ElXray session-fence integration files
+        run: |
+          gofmt -w \
+            common/sessionfence/registry.go \
+            common/sessionfence/registry_test.go \
+            features/policy/policy.go \
+            app/policy/manager.go \
+            app/policy/runtime.go \
+            app/policy/persistence.go \
+            app/policy/profile_fence.go \
+            app/policy/profile_fence_test.go \
+            app/policy/command/command.go \
+            app/policy/command/profile_fence.go \
+            app/policy/command/profile_fence_test.go \
+            proxy/vless/inbound/inbound.go
+      - name: Commit formatter changes if needed
+        run: |
+          if git diff --quiet; then
+            echo "ElXray profile fence code is already gofmt-clean"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add --             common/sessionfence/registry.go \
+            common/sessionfence/registry_test.go \
+            features/policy/policy.go \
+            app/policy/manager.go \
+            app/policy/runtime.go \
+            app/policy/persistence.go \
+            app/policy/profile_fence.go \
+            app/policy/profile_fence_test.go \
+            app/policy/command/command.go \
+            app/policy/command/profile_fence.go \
+            app/policy/command/profile_fence_test.go \
+            proxy/vless/inbound/inbound.go
+          git commit -m "style: gofmt VLESS profile drain and session fence integration"
+          git push origin HEAD:restrict-runtime-unlimited
