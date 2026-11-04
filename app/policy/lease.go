@@ -58,6 +58,8 @@ func (m *Instance) RenewControlLease(t ControlLease) error {
 	if limits == nil {
 		return errors.New("unprovisioned subscription lease")
 	}
-	limits.RenewLease(time.Unix(t.NotAfter, 0))
+	// Convert the wall-clock signed expiry to a monotonic local deadline.
+	// An NTP adjustment after receipt must not prolong a partitioned lease.
+	limits.RenewLease(time.Now().Add(time.Until(time.Unix(t.NotAfter, 0))))
 	return nil
 }
