@@ -21,11 +21,12 @@ var ErrDisabled = errors.New("subscription is disabled")
 // so existing connections can be limited later without allowing raw-copy bypass.
 // Rates and disabled state change together under mu. Updates never replace buckets.
 type Limits struct {
-	mu       sync.Mutex
-	changed  chan struct{}
-	disabled bool
-	Uplink   *Budget
-	Downlink *Budget
+	mu          sync.Mutex
+	changed     chan struct{}
+	disabled    bool
+	connections map[*connectionStop]struct{}
+	Uplink      *Budget
+	Downlink    *Budget
 }
 
 // Budget is a byte token bucket. Waiters do not reserve future credit: a policy
@@ -52,17 +53,50 @@ func (b *Budget) refill(now time.Time) {
 	b.last = now
 }
 
+type connectionStop struct {
+	close func()
+}
+
+// TrackConnection registers a live connection for disable notification.
+// close must only stop this connection and must not call the policy manager.
+// The returned function removes the registration on normal connection exit.
+func (l *Limits) TrackConnection(close func()) (func(), error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.disabled {
+		return nil, ErrDisabled
+	}
+	entry := &connectionStop{close: close}
+	if l.connections == nil {
+		l.connections = make(map[*connectionStop]struct{})
+	}
+	l.connections[entry] = struct{}{}
+	return func() {
+		l.mu.Lock()
+		delete(l.connections, entry)
+		l.mu.Unlock()
+	}, nil
+}
+
 // Update atomically changes both rates and admission state, preserving credit.
 // Callers validate rates against MaxRate before applying an external policy.
 func (l *Limits) Update(uplink, downlink uint64, disabled bool) {
 	l.mu.Lock()
-	defer l.mu.Unlock()
 	now := time.Now()
 	l.Uplink.refill(now)
 	l.Downlink.refill(now)
 	l.Uplink.rate, l.Downlink.rate, l.disabled = uplink, downlink, disabled
 	close(l.changed)
 	l.changed = make(chan struct{})
+	var stopped map[*connectionStop]struct{}
+	if disabled {
+		stopped = l.connections
+		l.connections = nil
+	}
+	l.mu.Unlock()
+	for entry := range stopped {
+		entry.close()
+	}
 }
 
 // AllowN is a non-blocking debit, also useful to exhaust initial test credit.

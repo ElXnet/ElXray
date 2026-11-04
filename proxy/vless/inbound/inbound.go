@@ -588,6 +588,27 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection s
 		return errors.New("unknown request flow " + requestAddons.Flow)
 	}
 
+	// Forward requests keep the connection registered until dispatch returns.
+	// Reverse workers outlive Process and need their own lifecycle hook.
+	if request.Command != protocol.RequestCommandRvs {
+		if manager, ok := h.policyManager.(policy.SubscriptionManager); ok {
+			if limits := manager.ForEmail(request.User.Email); limits != nil {
+				flowCtx, cancel := context.WithCancel(ctx)
+				defer cancel()
+				untrack, err := limits.TrackConnection(func() {
+					cancel()
+					_ = connection.SetDeadline(time.Now())
+					_ = connection.Close()
+				})
+				if err != nil {
+					return errors.New("subscription does not allow forwarding").Base(err)
+				}
+				defer untrack()
+				ctx = flowCtx
+			}
+		}
+	}
+
 	if request.Command != protocol.RequestCommandMux {
 		ctx = log.ContextWithAccessMessage(ctx, &log.AccessMessage{
 			From:   connection.RemoteAddr(),
