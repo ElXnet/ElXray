@@ -1,6 +1,7 @@
 package scenarios
 
 import (
+	stdnet "net"
 	"testing"
 	"time"
 
@@ -21,6 +22,33 @@ import (
 	xproxy "golang.org/x/net/proxy"
 	socks4 "h12.io/socks"
 )
+
+// pickUDPBridgePort selects a usable TCP/UDP port pair. Choosing only a TCP
+// port can land port+1 inside a Windows excluded UDP range on hosted runners.
+func pickUDPBridgePort(t *testing.T) uint32 {
+	t.Helper()
+	for attempt := 0; attempt < 50; attempt++ {
+		tcpListener, err := stdnet.ListenTCP("tcp4", &stdnet.TCPAddr{IP: stdnet.IPv4(127, 0, 0, 1)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		port := tcpListener.Addr().(*stdnet.TCPAddr).Port
+		if port >= 65535 {
+			tcpListener.Close()
+			continue
+		}
+		udpListener, err := stdnet.ListenUDP("udp4", &stdnet.UDPAddr{IP: stdnet.IPv4(127, 0, 0, 1), Port: port + 1})
+		if err != nil {
+			tcpListener.Close()
+			continue
+		}
+		udpListener.Close()
+		tcpListener.Close()
+		return uint32(port)
+	}
+	t.Fatal("No TCP/UDP port pair available for SOCKS bridge")
+	return 0
+}
 
 func TestSocksBridgeTCP(t *testing.T) {
 	tcpServer := tcp.Server{
@@ -185,7 +213,7 @@ func TestSocksBridageUDP(t *testing.T) {
 	defer udpServer.Close()
 
 	retry := 1
-	serverPort := tcp.PickPort()
+	serverPort := pickUDPBridgePort(t)
 	for {
 		serverConfig := &core.Config{
 			Inbound: []*core.InboundHandlerConfig{
@@ -234,7 +262,7 @@ func TestSocksBridageUDP(t *testing.T) {
 		if retry > 5 {
 			t.Fatal("All attempts failed to start server")
 		}
-		serverPort = tcp.PickPort()
+		serverPort = pickUDPBridgePort(t)
 	}
 
 	clientPort := udp.PickPort()
@@ -288,7 +316,7 @@ func TestSocksBridageUDPWithRouting(t *testing.T) {
 	defer udpServer.Close()
 
 	retry := 1
-	serverPort := tcp.PickPort()
+	serverPort := pickUDPBridgePort(t)
 	for {
 		serverConfig := &core.Config{
 			App: []*serial.TypedMessage{
@@ -352,7 +380,7 @@ func TestSocksBridageUDPWithRouting(t *testing.T) {
 		if retry > 5 {
 			t.Fatal("All attempts failed to start server")
 		}
-		serverPort = tcp.PickPort()
+		serverPort = pickUDPBridgePort(t)
 	}
 
 	clientPort := udp.PickPort()
