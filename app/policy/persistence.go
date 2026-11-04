@@ -4,7 +4,6 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
-	"strings"
 	"errors"
 	"fmt"
 	"io"
@@ -13,14 +12,15 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 
 	"github.com/xtls/xray-core/common/subscriptionrate"
 )
 
 type savedPolicies struct {
-	Version int
-	Base    map[string]subscriptionrate.Policy
-	Current map[string]subscriptionrate.Policy
+	Version        int
+	Base           map[string]subscriptionrate.Policy
+	Current        map[string]subscriptionrate.Policy
 	DeniedProfiles []string `json:",omitempty"`
 }
 

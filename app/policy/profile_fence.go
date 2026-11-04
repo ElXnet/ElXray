@@ -51,7 +51,9 @@ func (m *Instance) DrainVLESSProfile(ctx context.Context, request policy.Profile
 		return nil, fmt.Errorf("cannot persist profile denial: %w", err)
 	}
 	m.subscriptionMu.Unlock()
-	for _, stop := range stops { stop() }
+	for _, stop := range stops {
+		stop()
+	}
 	if err := m.profileGate.Wait(ctx, [16]byte(request.ProfileID)); err != nil {
 		// Denial stays durable; retry is safe. Never sign incomplete drain.
 		return nil, err

@@ -6,8 +6,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/xtls/xray-core/common/platform"
 	"github.com/google/uuid"
+	"github.com/xtls/xray-core/common/platform"
 	"github.com/xtls/xray-core/common/subscriptionrate"
 	"github.com/xtls/xray-core/features"
 )
