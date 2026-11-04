@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
+	"strings"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 
 	"github.com/xtls/xray-core/common/subscriptionrate"
 )
@@ -19,6 +21,7 @@ type savedPolicies struct {
 	Version int
 	Base    map[string]subscriptionrate.Policy
 	Current map[string]subscriptionrate.Policy
+	DeniedProfiles []string `json:",omitempty"`
 }
 
 type policyStore struct {
@@ -72,7 +75,7 @@ func (m *Instance) restorePolicies(path string) error {
 	}
 	store.key = ed25519.NewKeyFromSeed(seed)
 	if saved.Base == nil && saved.Current == nil {
-		if err := store.write(m.subscriptionPolicies); err != nil {
+		if err := store.write(m.subscriptionPolicies, nil); err != nil {
 			return err
 		}
 	} else {
@@ -90,11 +93,29 @@ func (m *Instance) restorePolicies(path string) error {
 			m.subscriptionPolicies[id] = p
 		}
 	}
+	// Denied profiles are a durable security boundary: reject ambiguous
+	// encodings, duplicates, empty values and invalid UUIDs on restore.
+	denied := make([][16]byte, 0, len(saved.DeniedProfiles))
+	seen := make(map[[16]byte]bool)
+	for _, encoded := range saved.DeniedProfiles {
+		var id [16]byte
+		raw, err := hex.DecodeString(encoded)
+		if err != nil || len(raw) != len(id) || strings.ToLower(encoded) != encoded {
+			return errors.New("invalid persisted denied VLESS profile")
+		}
+		copy(id[:], raw)
+		if id == [16]byte{} || seen[id] {
+			return errors.New("duplicate or empty persisted VLESS profile")
+		}
+		seen[id] = true
+		denied = append(denied, id)
+	}
+	m.profileGate.Restore(denied)
 	m.store = store
 	return nil
 }
 
-func (s *policyStore) write(current map[string]subscriptionrate.Policy) error {
+func (s *policyStore) write(current map[string]subscriptionrate.Policy, denied [][16]byte) error {
 	dir := filepath.Dir(s.path)
 	f, err := os.CreateTemp(dir, ".elx-policy-*")
 	if err != nil {
@@ -102,7 +123,12 @@ func (s *policyStore) write(current map[string]subscriptionrate.Policy) error {
 	}
 	defer os.Remove(f.Name())
 	defer f.Close()
-	if err := json.NewEncoder(f).Encode(savedPolicies{1, s.base, current}); err != nil {
+	encoded := make([]string, 0, len(denied))
+	for _, id := range denied {
+		encoded = append(encoded, hex.EncodeToString(id[:]))
+	}
+	slices.Sort(encoded)
+	if err := json.NewEncoder(f).Encode(savedPolicies{Version: 1, Base: s.base, Current: current, DeniedProfiles: encoded}); err != nil {
 		return err
 	}
 	if info, err := f.Stat(); err != nil {
