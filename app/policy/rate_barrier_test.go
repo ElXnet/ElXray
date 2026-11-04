@@ -75,6 +75,18 @@ func TestSignedRateBarrierRequiresDurablePolicyAndDrain(t *testing.T) {
 		t.Fatalf("signed before old flow exit: %v", res.err)
 	default:
 	}
+	// An extended drain must not serialize unrelated policy/lease operations.
+	policyRead := make(chan error, 1)
+	go func() {
+		_, err := m.GetSubscription("a")
+		policyRead <- err
+	}()
+	select {
+	case err := <-policyRead:
+		if err != nil {t.Fatal(err)}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("rate barrier held global policy lock while waiting for socket exit")
+	}
 	untrack()
 	select {
 	case res := <-completed:
