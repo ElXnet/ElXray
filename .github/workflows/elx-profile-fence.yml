@@ -29,7 +29,7 @@ jobs:
           cache: false
       - name: Check Go formatting
         run: |
-          changed="$(gofmt -l common/sessionfence/registry.go common/sessionfence/registry_test.go app/policy/profile_fence.go app/policy/profile_fence_test.go app/policy/command/profile_fence.go app/policy/command/profile_fence_test.go app/policy/lease.go app/policy/lease_test.go app/policy/command/lease.go common/subscriptionrate/limits.go common/subscriptionrate/lease_test.go)"
+          changed="$(gofmt -l common/sessionfence/registry.go common/sessionfence/registry_test.go app/policy/profile_fence.go app/policy/profile_fence_test.go app/policy/command/profile_fence.go app/policy/command/profile_fence_test.go app/policy/lease.go app/policy/lease_test.go app/policy/command/lease.go common/subscriptionrate/limits.go common/subscriptionrate/lease_test.go common/subscriptionrate/barrier_test.go app/policy/rate_barrier.go app/policy/rate_barrier_test.go app/policy/command/rate_barrier.go)"
           if [ -n "$changed" ]; then
             echo "Files requiring gofmt:"
             echo "$changed"
