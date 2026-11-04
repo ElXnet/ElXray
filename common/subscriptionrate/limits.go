@@ -159,10 +159,14 @@ func (l *Limits) DrainForRateBarrier(ctx context.Context) error {
 	l.barrierActive = true
 	close(l.changed)
 	l.changed = make(chan struct{})
-	stops := make([]func(),0,len(l.connections))
-	for c := range l.connections {stops = append(stops,c.close)}
+	stops := make([]func(), 0, len(l.connections))
+	for c := range l.connections {
+		stops = append(stops, c.close)
+	}
 	l.mu.Unlock()
-	for _,stop := range stops {stop()}
+	for _, stop := range stops {
+		stop()
+	}
 	defer func() {
 		l.mu.Lock()
 		l.barrierActive = false
@@ -170,15 +174,18 @@ func (l *Limits) DrainForRateBarrier(ctx context.Context) error {
 		l.changed = make(chan struct{})
 		l.mu.Unlock()
 	}()
-	ticker:=time.NewTicker(10*time.Millisecond)
+	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 	for {
 		l.mu.Lock()
-		remaining:=len(l.connections)
+		remaining := len(l.connections)
 		l.mu.Unlock()
-		if remaining==0 {return nil}
+		if remaining == 0 {
+			return nil
+		}
 		select {
-		case <-ctx.Done():return ctx.Err()
+		case <-ctx.Done():
+			return ctx.Err()
 		case <-ticker.C:
 		}
 	}

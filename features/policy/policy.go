@@ -114,20 +114,20 @@ type VLESSProfileManager interface {
 // authenticated subscription flows are drained. All UUIDs are canonical.
 type RateBarrierRequest struct {
 	EntitlementID uuid.UUID
-	NodeID uuid.UUID
-	ResourceID uuid.UUID
-	OperationID uuid.UUID
-	Subscription string
-	Epoch int64
-	Revision int64
-	Up int64
-	Down int64
+	NodeID        uuid.UUID
+	ResourceID    uuid.UUID
+	OperationID   uuid.UUID
+	Subscription  string
+	Epoch         int64
+	Revision      int64
+	Up            int64
+	Down          int64
 }
 
 // SubscriptionRateBarrier is a core-only, privileged extension. It must never
 // be accessible through a public subscription URL.
 type SubscriptionRateBarrier interface {
-	ProveRateBarrier(context.Context, RateBarrierRequest) ([]byte,error)
+	ProveRateBarrier(context.Context, RateBarrierRequest) ([]byte, error)
 }
 
 // ManagerType returns the type of Manager interface. Can be used to implement common.HasType.
