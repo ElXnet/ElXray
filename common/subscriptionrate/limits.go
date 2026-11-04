@@ -27,6 +27,7 @@ type Limits struct {
 	disabled    bool
 	leaseRequired bool
 	leaseDeadline time.Time
+	leaseTripped bool
 	connections map[*connectionStop]struct{}
 	Uplink      *Budget
 	Downlink    *Budget
@@ -90,6 +91,7 @@ func (l *Limits) RequireLease() {
 	defer l.mu.Unlock()
 	l.leaseRequired = true
 	l.leaseDeadline = time.Time{}
+	l.leaseTripped = true
 }
 
 // RenewLease is called ONLY by the core's Ed25519-verifying policy manager.
@@ -102,6 +104,7 @@ func (l *Limits) RenewLease(deadline time.Time) {
 		return
 	}
 	l.leaseDeadline = deadline
+	l.leaseTripped = false
 	close(l.changed)
 	l.changed = make(chan struct{})
 }
@@ -115,10 +118,11 @@ func (l *Limits) leaseDue(now time.Time) bool {
 // this for active subscriptions; closing callbacks run outside l.mu.
 func (l *Limits) SweepLease(now time.Time) bool {
 	l.mu.Lock()
-	if !l.leaseDue(now) {
+	if !l.leaseDue(now) || l.leaseTripped {
 		l.mu.Unlock()
 		return false
 	}
+	l.leaseTripped = true
 	stopped := l.connections
 	l.connections = nil
 	close(l.changed)
