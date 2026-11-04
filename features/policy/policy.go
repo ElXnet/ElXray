@@ -120,6 +120,7 @@ type RateBarrierRequest struct {
 	Subscription  string
 	Epoch         int64
 	Revision      int64
+	CoreRevision  int64
 	Up            int64
 	Down          int64
 }
