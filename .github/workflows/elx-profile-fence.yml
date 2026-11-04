@@ -2,7 +2,9 @@ name: ElXray profile fence regression
 
 on:
   push:
-    branches: [restrict-runtime-unlimited]
+    branches: [main]
+  pull_request:
+    branches: [main]
     paths:
       - "app/policy/**"
       - "common/sessionfence/**"
