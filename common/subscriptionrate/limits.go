@@ -60,7 +60,7 @@ func (b *Budget) refill(now time.Time) {
 }
 
 type connectionStop struct {
-	close func()
+	close   func()
 	stopped bool
 }
 
