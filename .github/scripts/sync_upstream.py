@@ -108,5 +108,5 @@ def sync(repo, upstream="XTLS/Xray-core", base="main"):
 
 if __name__ == "__main__":
     if not os.environ.get("GH_TOKEN"):
-        raise SystemExit("Configure the UPSTREAM_SYNC_TOKEN Actions secret first.")
+        raise SystemExit("Configure the ElXnet GitHub App token in this workflow first.")
     sync(os.environ["GITHUB_REPOSITORY"])
