@@ -78,6 +78,11 @@ func (s *service) SetSubscription(ctx context.Context, r *SetSubscriptionRequest
 	if r == nil || r.UplinkBps == nil || r.DownlinkBps == nil || r.Disabled == nil {
 		return nil, status.Error(codes.InvalidArgument, "both rates and disabled must be explicit")
 	}
+	// Commander authenticates locality only. Unlimited rates must be set
+	// through the administrator-owned startup configuration.
+	if r.GetUplinkBps() == 0 || r.GetDownlinkBps() == 0 {
+		return nil, status.Error(codes.PermissionDenied, "unlimited rates require administrator configuration")
+	}
 	p, err := s.manager.UpdateSubscription(subscriptionrate.Update{ID: r.Id, ExpectedRevision: r.ExpectedRevision, Revision: r.Revision, UplinkBps: r.GetUplinkBps(), DownlinkBps: r.GetDownlinkBps(), Disabled: r.GetDisabled()})
 	if err != nil {
 		return nil, rpcError(err)
