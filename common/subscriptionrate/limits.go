@@ -22,15 +22,15 @@ var ErrDisabled = errors.New("subscription is disabled")
 // so existing connections can be limited later without allowing raw-copy bypass.
 // Rates and disabled state change together under mu. Updates never replace buckets.
 type Limits struct {
-	mu          sync.Mutex
-	changed     chan struct{}
-	disabled    bool
+	mu            sync.Mutex
+	changed       chan struct{}
+	disabled      bool
 	leaseRequired bool
 	leaseDeadline time.Time
-	leaseTripped bool
-	connections map[*connectionStop]struct{}
-	Uplink      *Budget
-	Downlink    *Budget
+	leaseTripped  bool
+	connections   map[*connectionStop]struct{}
+	Uplink        *Budget
+	Downlink      *Budget
 }
 
 // Budget is a byte token bucket. Waiters do not reserve future credit: a policy
