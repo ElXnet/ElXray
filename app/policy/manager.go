@@ -6,12 +6,13 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
-	"github.com/google/uuid"
 	"os"
 	"slices"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/xtls/xray-core/common"
 	"github.com/xtls/xray-core/common/sessionfence"

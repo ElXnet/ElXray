@@ -8,12 +8,13 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
-	"github.com/google/uuid"
-	"github.com/xtls/xray-core/common/subscriptionrate"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/xtls/xray-core/common/subscriptionrate"
 )
 
 func TestSignedControlLeaseRequiresNodeAndAbsoluteExpiry(t *testing.T) {
@@ -27,20 +28,22 @@ func TestSignedControlLeaseRequiresNodeAndAbsoluteExpiry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(state, []byte("{\"Version\":1}"), 0600); err != nil {
+	if err := os.WriteFile(state, []byte("{\"Version\":1}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(state+".key", []byte(hex.EncodeToString(coreKey.Seed())), 0600); err != nil {
+	if err := os.WriteFile(state+".key", []byte(hex.EncodeToString(coreKey.Seed())), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("ELXRAY_POLICY_STATE", state)
 	t.Setenv("ELXRAY_REQUIRE_CONTROL_LEASE", "1")
 	t.Setenv("ELXRAY_CONTROL_LEASE_PUBLIC_KEY", base64.StdEncoding.EncodeToString(pub))
 	t.Setenv("ELXRAY_CONTROL_LEASE_NODE_UUID", node.String())
-	m, err := New(context.Background(), &Config{RequireSubscription: true,
+	m, err := New(context.Background(), &Config{
+		RequireSubscription: true,
 		Subscriptions: map[string]*SubscriptionPolicy{
 			"lab": {Emails: []string{"member"}, UplinkBps: 100, DownlinkBps: 200},
-		}})
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,8 +56,10 @@ func TestSignedControlLeaseRequiresNodeAndAbsoluteExpiry(t *testing.T) {
 		t.Fatal("unleased subscription was active:", err)
 	}
 	now := time.Now().Unix()
-	ticket := ControlLease{NodeID: node, Subscription: "lab", Sequence: 1,
-		NotBefore: now, NotAfter: now + 15, CeilingUp: 100, CeilingDown: 200}
+	ticket := ControlLease{
+		NodeID: node, Subscription: "lab", Sequence: 1,
+		NotBefore: now, NotAfter: now + 15, CeilingUp: 100, CeilingDown: 200,
+	}
 	sign := func(tick ControlLease) ControlLease {
 		tick.Signature = ed25519.Sign(key, ControlLeaseTranscript(tick))
 		return tick
@@ -101,12 +106,16 @@ func TestLeaseModeRejectsMissingTrustAnchor(t *testing.T) {
 	t.Setenv("ELXRAY_REQUIRE_CONTROL_LEASE", "1")
 	t.Setenv("ELXRAY_CONTROL_LEASE_PUBLIC_KEY", "")
 	t.Setenv("ELXRAY_CONTROL_LEASE_NODE_UUID", uuid.NewString())
-	if _, err := New(context.Background(), &Config{RequireSubscription: true,
-		Subscriptions: map[string]*SubscriptionPolicy{"lab": {Emails: []string{"a"}}}}); err == nil {
+	if _, err := New(context.Background(), &Config{
+		RequireSubscription: true,
+		Subscriptions:       map[string]*SubscriptionPolicy{"lab": {Emails: []string{"a"}}},
+	}); err == nil {
 		t.Fatal("mandatory lease without Control key accepted")
 	}
-	if _, err := New(context.Background(), &Config{RequireSubscription: false,
-		Subscriptions: map[string]*SubscriptionPolicy{"lab": {Emails: []string{"a"}}}}); err == nil {
+	if _, err := New(context.Background(), &Config{
+		RequireSubscription: false,
+		Subscriptions:       map[string]*SubscriptionPolicy{"lab": {Emails: []string{"a"}}},
+	}); err == nil {
 		t.Fatal("unmanaged subscription bypassed mandatory Control lease")
 	}
 }

@@ -50,7 +50,8 @@ func registerControlLease(server *grpc.Server, manager any) {
 	server.RegisterService(&grpc.ServiceDesc{
 		ServiceName: leaseService, HandlerType: (*leaseInterface)(nil),
 		Methods: []grpc.MethodDesc{{MethodName: "Renew", Handler: func(s any, ctx context.Context,
-			decode func(any) error, intercept grpc.UnaryServerInterceptor) (any, error) {
+			decode func(any) error, intercept grpc.UnaryServerInterceptor,
+		) (any, error) {
 			raw := new(wrapperspb.BytesValue)
 			if err := decode(raw); err != nil {
 				return nil, err
@@ -58,8 +59,10 @@ func registerControlLease(server *grpc.Server, manager any) {
 			if intercept == nil {
 				return s.(*leaseReceiver).renew(ctx, raw)
 			}
-			return intercept(ctx, raw, &grpc.UnaryServerInfo{Server: s,
-				FullMethod: "/" + leaseService + "/Renew"},
+			return intercept(ctx, raw, &grpc.UnaryServerInfo{
+				Server:     s,
+				FullMethod: "/" + leaseService + "/Renew",
+			},
 				func(ctx context.Context, in any) (any, error) {
 					return s.(*leaseReceiver).renew(ctx, in.(*wrapperspb.BytesValue))
 				})

@@ -24,10 +24,10 @@ func TestDrainOneAuthenticatedProfileSignsOnlyAfterFlowsExit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte("{\"Version\":1}"), 0600); err != nil {
+	if err := os.WriteFile(path, []byte("{\"Version\":1}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path+".key", []byte(hex.EncodeToString(private.Seed())), 0600); err != nil {
+	if err := os.WriteFile(path+".key", []byte(hex.EncodeToString(private.Seed())), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("ELXRAY_POLICY_STATE", path)
@@ -51,8 +51,10 @@ func TestDrainOneAuthenticatedProfileSignsOnlyAfterFlowsExit(t *testing.T) {
 	}
 	defer otherUntrack()
 	incarnation := uuid.UUID(m.usageIncarnation)
-	req := feature.ProfileDrainRequest{OwnerID: uuid.New(), ProfileID: profile,
-		NodeID: uuid.New(), Incarnation: incarnation, Generation: 5}
+	req := feature.ProfileDrainRequest{
+		OwnerID: uuid.New(), ProfileID: profile,
+		NodeID: uuid.New(), Incarnation: incarnation, Generation: 5,
+	}
 	result := make(chan []byte, 1)
 	go func() {
 		sig, err := m.DrainVLESSProfile(context.Background(), req)
@@ -124,7 +126,8 @@ func TestDrainRejectsUnknownOrNonDurableCore(t *testing.T) {
 	id := uuid.New()
 	m.RegisterVLESSProfile(id)
 	_, err = m.DrainVLESSProfile(context.Background(), feature.ProfileDrainRequest{
-		OwnerID: uuid.New(), ProfileID: id, NodeID: uuid.New(), Incarnation: uuid.New(), Generation: 1})
+		OwnerID: uuid.New(), ProfileID: id, NodeID: uuid.New(), Incarnation: uuid.New(), Generation: 1,
+	})
 	if err == nil {
 		t.Fatal("core issued signature with no durable store")
 	}

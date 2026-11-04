@@ -23,29 +23,35 @@ func TestSignedRateBarrierRequiresDurablePolicyAndDrain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte("{\"Version\":1}"), 0600); err != nil {
+	if err := os.WriteFile(path, []byte("{\"Version\":1}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path+".key", []byte(hex.EncodeToString(priv.Seed())), 0600); err != nil {
+	if err := os.WriteFile(path+".key", []byte(hex.EncodeToString(priv.Seed())), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("ELXRAY_POLICY_STATE", path)
-	m, err := New(context.Background(), &Config{RequireSubscription: true,
+	m, err := New(context.Background(), &Config{
+		RequireSubscription: true,
 		Subscriptions: map[string]*SubscriptionPolicy{"a": {
 			Emails: []string{"member"}, UplinkBps: 1000, DownlinkBps: 1000, Revision: 1,
-		}}})
+		}},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer m.Close()
-	_, err = m.UpdateSubscription(subscriptionrate.Update{ID: "a", ExpectedRevision: 1, Revision: 2,
-		UplinkBps: 200, DownlinkBps: 300})
+	_, err = m.UpdateSubscription(subscriptionrate.Update{
+		ID: "a", ExpectedRevision: 1, Revision: 2,
+		UplinkBps: 200, DownlinkBps: 300,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	req := feature.RateBarrierRequest{EntitlementID: uuid.New(), NodeID: uuid.New(),
+	req := feature.RateBarrierRequest{
+		EntitlementID: uuid.New(), NodeID: uuid.New(),
 		ResourceID: uuid.New(), OperationID: uuid.New(), Subscription: "a",
-		Epoch: 1, Revision: 1, CoreRevision: 2, Up: 200, Down: 300}
+		Epoch: 1, Revision: 1, CoreRevision: 2, Up: 200, Down: 300,
+	}
 	bad := req
 	bad.Up = 400
 	if _, err := m.ProveRateBarrier(context.Background(), bad); err == nil {

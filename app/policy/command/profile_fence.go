@@ -24,10 +24,12 @@ type drainInput struct {
 	Generation  int64
 }
 
-type profileFenceServer struct{ manager policy.VLESSProfileManager }
-type profileFenceInterface interface {
-	drain(context.Context, *wrapperspb.BytesValue) (*wrapperspb.BytesValue, error)
-}
+type (
+	profileFenceServer    struct{ manager policy.VLESSProfileManager }
+	profileFenceInterface interface {
+		drain(context.Context, *wrapperspb.BytesValue) (*wrapperspb.BytesValue, error)
+	}
+)
 
 func parseDrainInput(data []byte) (policy.ProfileDrainRequest, error) {
 	var input drainInput
@@ -77,7 +79,8 @@ func registerProfileFence(server *grpc.Server, manager policy.SubscriptionContro
 	server.RegisterService(&grpc.ServiceDesc{
 		ServiceName: profileFenceService, HandlerType: (*profileFenceInterface)(nil),
 		Methods: []grpc.MethodDesc{{MethodName: "Drain", Handler: func(s any, ctx context.Context,
-			decode func(any) error, intercept grpc.UnaryServerInterceptor) (any, error) {
+			decode func(any) error, intercept grpc.UnaryServerInterceptor,
+		) (any, error) {
 			input := new(wrapperspb.BytesValue)
 			if err := decode(input); err != nil {
 				return nil, err

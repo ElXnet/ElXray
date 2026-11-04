@@ -3,11 +3,12 @@ package command
 import (
 	"context"
 	"encoding/json"
+	"time"
+
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/wrapperspb"
-	"time"
 
 	feature "github.com/xtls/xray-core/features/policy"
 )
@@ -40,6 +41,7 @@ func (r *rateBarrierHandler) prove(ctx context.Context, in *wrapperspb.BytesValu
 	}
 	return wrapperspb.Bytes(proof), nil
 }
+
 func registerRateBarrier(g *grpc.Server, manager any) {
 	impl, ok := manager.(feature.SubscriptionRateBarrier)
 	if !ok {
@@ -48,7 +50,8 @@ func registerRateBarrier(g *grpc.Server, manager any) {
 	g.RegisterService(&grpc.ServiceDesc{
 		ServiceName: rateBarrierService, HandlerType: (*rateBarrierInterface)(nil),
 		Methods: []grpc.MethodDesc{{MethodName: "Prove", Handler: func(s any, ctx context.Context,
-			decode func(any) error, intercept grpc.UnaryServerInterceptor) (any, error) {
+			decode func(any) error, intercept grpc.UnaryServerInterceptor,
+		) (any, error) {
 			input := new(wrapperspb.BytesValue)
 			if err := decode(input); err != nil {
 				return nil, err
@@ -56,8 +59,10 @@ func registerRateBarrier(g *grpc.Server, manager any) {
 			if intercept == nil {
 				return s.(*rateBarrierHandler).prove(ctx, input)
 			}
-			return intercept(ctx, input, &grpc.UnaryServerInfo{Server: s,
-				FullMethod: "/" + rateBarrierService + "/Prove"},
+			return intercept(ctx, input, &grpc.UnaryServerInfo{
+				Server:     s,
+				FullMethod: "/" + rateBarrierService + "/Prove",
+			},
 				func(ctx context.Context, in any) (any, error) {
 					return s.(*rateBarrierHandler).prove(ctx, in.(*wrapperspb.BytesValue))
 				})

@@ -27,10 +27,10 @@ func TestProfileFenceRPCSignsOnlyDurableAuthenticatedProfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte("{\"Version\":1}"), 0600); err != nil {
+	if err := os.WriteFile(path, []byte("{\"Version\":1}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path+".key", []byte(hex.EncodeToString(key.Seed())), 0600); err != nil {
+	if err := os.WriteFile(path+".key", []byte(hex.EncodeToString(key.Seed())), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("ELXRAY_POLICY_STATE", path)
@@ -67,8 +67,10 @@ func TestProfileFenceRPCSignsOnlyDurableAuthenticatedProfile(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 	call := func(profileID, boot uuid.UUID) ([]byte, error) {
-		request := drainInput{OwnerID: owner.String(), ProfileID: profileID.String(),
-			NodeID: node.String(), Incarnation: boot.String(), Generation: 7}
+		request := drainInput{
+			OwnerID: owner.String(), ProfileID: profileID.String(),
+			NodeID: node.String(), Incarnation: boot.String(), Generation: 7,
+		}
 		data, err := json.Marshal(request)
 		if err != nil {
 			return nil, err
@@ -108,8 +110,10 @@ func TestProfileFenceRPCSignsOnlyDurableAuthenticatedProfile(t *testing.T) {
 }
 
 func TestProfileFenceRejectsMalformedIdentityAndRemoteRPC(t *testing.T) {
-	for _, data := range [][]byte{nil, []byte("{}"), []byte("{"),
-		[]byte(`{"OwnerID":"bad","ProfileID":"bad","NodeID":"bad","Incarnation":"bad","Generation":1}`)} {
+	for _, data := range [][]byte{
+		nil, []byte("{}"), []byte("{"),
+		[]byte(`{"OwnerID":"bad","ProfileID":"bad","NodeID":"bad","Incarnation":"bad","Generation":1}`),
+	} {
 		if _, err := parseDrainInput(data); err == nil {
 			t.Fatalf("accepted bad drain request %q", data)
 		}

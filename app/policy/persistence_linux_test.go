@@ -20,7 +20,7 @@ func TestDurablePolicyRestore(t *testing.T) {
 	for name, data := range map[string]string{
 		path: `{"Version":1}`, path + ".key": hex.EncodeToString(key.Seed()),
 	} {
-		if err := os.WriteFile(name, []byte(data), 0600); err != nil {
+		if err := os.WriteFile(name, []byte(data), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -61,7 +61,7 @@ func TestDurablePolicyRestore(t *testing.T) {
 	if err := m.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte("{"), 0600); err != nil {
+	if err := os.WriteFile(path, []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := New(context.Background(), cfg); err == nil {
