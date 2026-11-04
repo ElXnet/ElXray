@@ -10,6 +10,7 @@ import (
 
 	"github.com/xtls/xray-core/common"
 	"github.com/xtls/xray-core/common/subscriptionrate"
+	"github.com/xtls/xray-core/common/sessionfence"
 	"github.com/xtls/xray-core/features/policy"
 )
 
@@ -24,6 +25,7 @@ type Instance struct {
 	usageIncarnation     [16]byte
 	usageSequences       map[string]uint64
 	subscriptionPolicies map[string]subscriptionrate.Policy
+	profileGate *sessionfence.Registry
 }
 
 // New creates new Policy manager instance.
@@ -38,6 +40,7 @@ func New(ctx context.Context, config *Config) (*Instance, error) {
 		subscriptions:        subscriptions,
 		subscriptionPolicies: make(map[string]subscriptionrate.Policy),
 		usageSequences:       make(map[string]uint64),
+		profileGate: sessionfence.New(),
 	}
 	if config.RequireSubscription {
 		m.unmanaged = subscriptionrate.New(0, 0)
