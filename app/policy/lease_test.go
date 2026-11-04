@@ -4,6 +4,9 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/base64"
+	"encoding/hex"
+	"os"
+	"path/filepath"
 	"errors"
 	"testing"
 	"time"
@@ -15,6 +18,12 @@ func TestSignedControlLeaseRequiresNodeAndAbsoluteExpiry(t *testing.T) {
 	pub,key,err:=ed25519.GenerateKey(nil)
 	if err!=nil {t.Fatal(err)}
 	node:=uuid.New()
+	state:=filepath.Join(t.TempDir(),"policy.json")
+	_,coreKey,err:=ed25519.GenerateKey(nil)
+	if err!=nil {t.Fatal(err)}
+	if err:=os.WriteFile(state,[]byte("{\"Version\":1}"),0600);err!=nil {t.Fatal(err)}
+	if err:=os.WriteFile(state+".key",[]byte(hex.EncodeToString(coreKey.Seed())),0600);err!=nil {t.Fatal(err)}
+	t.Setenv("ELXRAY_POLICY_STATE",state)
 	t.Setenv("ELXRAY_REQUIRE_CONTROL_LEASE","1")
 	t.Setenv("ELXRAY_CONTROL_LEASE_PUBLIC_KEY",base64.StdEncoding.EncodeToString(pub))
 	t.Setenv("ELXRAY_CONTROL_LEASE_NODE_UUID",node.String())
@@ -23,6 +32,7 @@ func TestSignedControlLeaseRequiresNodeAndAbsoluteExpiry(t *testing.T) {
 			"lab":{Emails:[]string{"member"},UplinkBps:100,DownlinkBps:200},
 		}})
 	if err!=nil {t.Fatal(err)}
+	defer m.Close()
 	limit:=m.ForEmail("member")
 	if limit==nil {t.Fatal("missing budget")}
 	if err:=limit.Downlink.WaitN(context.Background(),1);!errors.Is(err,subscriptionrate.ErrDisabled){
