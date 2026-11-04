@@ -59,6 +59,9 @@ func New(ctx context.Context, config *Config) (*Instance, error) {
 		if !config.RequireSubscription || len(m.subscriptions) == 0 {
 			return nil, errors.New("Control lease enforcement requires managed subscriptions")
 		}
+		if os.Getenv("ELXRAY_POLICY_STATE") == "" {
+			return nil, errors.New("Control lease enforcement requires durable policy state")
+		}
 		pub, err := base64.StdEncoding.DecodeString(os.Getenv("ELXRAY_CONTROL_LEASE_PUBLIC_KEY"))
 		if err != nil || len(pub) != ed25519.PublicKeySize {
 			return nil, errors.New("Control lease public key must be provisioned")
