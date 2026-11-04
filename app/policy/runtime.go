@@ -45,7 +45,7 @@ func (m *Instance) UpdateSubscription(u subscriptionrate.Update) (subscriptionra
 		if m.store != nil {
 			next := maps.Clone(m.subscriptionPolicies)
 			next[u.ID] = p
-			if err := m.store.write(next); err != nil {
+			if err := m.store.write(next, m.profileGate.Denied()); err != nil {
 				m.store.failed = true
 				return subscriptionrate.Policy{}, err
 			}
