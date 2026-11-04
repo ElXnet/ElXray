@@ -19,7 +19,7 @@ import (
 func (m *Instance) ProveRateBarrier(ctx context.Context, request feature.RateBarrierRequest) ([]byte,error) {
 	if request.EntitlementID==uuid.Nil || request.NodeID==uuid.Nil ||
 		request.ResourceID==uuid.Nil || request.OperationID==uuid.Nil ||
-		request.Epoch<=0 || request.Revision<=0 ||
+		request.Epoch<=0 || request.Revision<=0 || request.CoreRevision<=1 ||
 		request.Up<0 || request.Down<0 || request.Up>int64(subscriptionrate.MaxRate) ||
 		request.Down>int64(subscriptionrate.MaxRate) ||
 		(request.Up==0)!=(request.Down==0) ||
@@ -30,7 +30,7 @@ func (m *Instance) ProveRateBarrier(ctx context.Context, request feature.RateBar
 	defer m.subscriptionMu.Unlock()
 	p,ok:=m.subscriptionPolicies[request.Subscription]
 	if m.store==nil || m.store.failed || !ok || len(p.Emails)==0 ||
-		p.Revision!=uint64(request.Revision) {
+		p.Revision!=uint64(request.CoreRevision) {
 		return nil, errors.New("durable applied rate revision unavailable")
 	}
 	requiredUp,requiredDown:=uint64(max(1,request.Up)),uint64(max(1,request.Down))
