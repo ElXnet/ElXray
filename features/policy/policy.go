@@ -109,6 +109,27 @@ type VLESSProfileManager interface {
 	DrainVLESSProfile(context.Context, ProfileDrainRequest) ([]byte, error)
 }
 
+// RateBarrierRequest names one committed rate-grant revision. The core
+// signs it only after its exact reduced policy is durable AND all previously
+// authenticated subscription flows are drained. All UUIDs are canonical.
+type RateBarrierRequest struct {
+	EntitlementID uuid.UUID
+	NodeID uuid.UUID
+	ResourceID uuid.UUID
+	OperationID uuid.UUID
+	Subscription string
+	Epoch int64
+	Revision int64
+	Up int64
+	Down int64
+}
+
+// SubscriptionRateBarrier is a core-only, privileged extension. It must never
+// be accessible through a public subscription URL.
+type SubscriptionRateBarrier interface {
+	ProveRateBarrier(context.Context, RateBarrierRequest) ([]byte,error)
+}
+
 // ManagerType returns the type of Manager interface. Can be used to implement common.HasType.
 //
 // xray:api:stable
