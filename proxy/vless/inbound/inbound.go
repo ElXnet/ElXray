@@ -20,6 +20,7 @@ import (
 	"github.com/xtls/xray-core/common/net"
 	"github.com/xtls/xray-core/common/protocol"
 	"github.com/xtls/xray-core/common/retry"
+	"github.com/google/uuid"
 	"github.com/xtls/xray-core/common/serial"
 	"github.com/xtls/xray-core/common/session"
 	"github.com/xtls/xray-core/common/signal"
@@ -172,6 +173,15 @@ func New(ctx context.Context, config *Config, dc dns.Client, validator vless.Val
 		}
 	}
 
+	// Register configured VLESS UUIDs before accepting flows. A durable
+	// denial is never cleared by re-registering a profile after restart.
+	if tracker, ok := handler.policyManager.(policy.VLESSProfileManager); ok {
+		for _, user := range handler.validator.GetAll() {
+			if account, ok := user.Account.(*vless.MemoryAccount); ok {
+				tracker.RegisterVLESSProfile(uuid.UUID(account.ID.UUID()))
+			}
+		}
+	}
 	return handler, nil
 }
 
@@ -236,7 +246,15 @@ func (h *Handler) Close() error {
 
 // AddUser implements proxy.UserManager.AddUser().
 func (h *Handler) AddUser(ctx context.Context, u *protocol.MemoryUser) error {
-	return h.validator.Add(u)
+	if err := h.validator.Add(u); err != nil {
+		return err
+	}
+	if tracker, ok := h.policyManager.(policy.VLESSProfileManager); ok {
+		if account, ok := u.Account.(*vless.MemoryAccount); ok {
+			tracker.RegisterVLESSProfile(uuid.UUID(account.ID.UUID()))
+		}
+	}
+	return nil
 }
 
 // RemoveUser implements proxy.UserManager.RemoveUser().
@@ -586,6 +604,24 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection s
 		}
 	default:
 		return errors.New("unknown request flow " + requestAddons.Flow)
+	}
+
+	// Register the authenticated VLESS account itself, independently from
+	// shared subscription budgets. Unlike a subscription disable, a profile
+	// drain closes only this device's flows (including reverse/Mux workers).
+	if tracker, ok := h.policyManager.(policy.VLESSProfileManager); ok {
+		flowCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		untrack, err := tracker.TrackVLESSProfile(uuid.UUID(account.ID.UUID()), func() {
+			cancel()
+			_ = connection.SetDeadline(time.Now())
+			_ = connection.Close()
+		})
+		if err != nil {
+			return errors.New("VLESS profile admission denied").Base(err)
+		}
+		defer untrack()
+		ctx = flowCtx
 	}
 
 	// Forward requests keep the connection registered until dispatch returns.
