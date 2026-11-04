@@ -61,6 +61,21 @@ func (b *Budget) refill(now time.Time) {
 
 type connectionStop struct {
 	close func()
+	stopped bool
+}
+
+// stopConnectionsLocked never removes active flow registrations. Only the
+// inbound's deferred untrack proves that the flow actually exited. Otherwise
+// a rate barrier could sign early while TCP/Mux streams are still closing.
+func (l *Limits) stopConnectionsLocked() []func() {
+	stops := make([]func(), 0, len(l.connections))
+	for entry := range l.connections {
+		if !entry.stopped {
+			entry.stopped = true
+			stops = append(stops, entry.close)
+		}
+	}
+	return stops
 }
 
 // TrackConnection registers a live connection for disable notification.
@@ -107,18 +122,17 @@ func (l *Limits) RenewLease(deadline time.Time) {
 	}
 	// An expired lease requires a fresh VPN handshake. Even if the watchdog
 	// has not yet fired, a late renewal must not resurrect old idle sockets.
-	var stopped map[*connectionStop]struct{}
+	var stopped []func()
 	if l.leaseDue(now) && !l.leaseTripped {
-		stopped = l.connections
-		l.connections = nil
+		stopped = l.stopConnectionsLocked()
 	}
 	l.leaseDeadline = deadline
 	l.leaseTripped = false
 	close(l.changed)
 	l.changed = make(chan struct{})
 	l.mu.Unlock()
-	for f := range stopped {
-		f.close()
+	for _, stop := range stopped {
+		stop()
 	}
 }
 
@@ -136,13 +150,12 @@ func (l *Limits) SweepLease(now time.Time) bool {
 		return false
 	}
 	l.leaseTripped = true
-	stopped := l.connections
-	l.connections = nil
+	stopped := l.stopConnectionsLocked()
 	close(l.changed)
 	l.changed = make(chan struct{})
 	l.mu.Unlock()
-	for f := range stopped {
-		f.close()
+	for _, stop := range stopped {
+		stop()
 	}
 	return true
 }
@@ -160,10 +173,7 @@ func (l *Limits) DrainForRateBarrier(ctx context.Context) error {
 	l.barrierActive = true
 	close(l.changed)
 	l.changed = make(chan struct{})
-	stops := make([]func(), 0, len(l.connections))
-	for c := range l.connections {
-		stops = append(stops, c.close)
-	}
+	stops := l.stopConnectionsLocked()
 	l.mu.Unlock()
 	for _, stop := range stops {
 		stop()
@@ -202,14 +212,13 @@ func (l *Limits) Update(uplink, downlink uint64, disabled bool) {
 	l.Uplink.rate, l.Downlink.rate, l.disabled = uplink, downlink, disabled
 	close(l.changed)
 	l.changed = make(chan struct{})
-	var stopped map[*connectionStop]struct{}
+	var stopped []func()
 	if disabled {
-		stopped = l.connections
-		l.connections = nil
+		stopped = l.stopConnectionsLocked()
 	}
 	l.mu.Unlock()
-	for entry := range stopped {
-		entry.close()
+	for _, stop := range stopped {
+		stop()
 	}
 }
 
