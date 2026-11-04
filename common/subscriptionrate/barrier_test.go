@@ -49,3 +49,35 @@ func TestRateBarrierWaitsForOldFlowsAndBlocksNewAdmission(t *testing.T) {
 	}
 	next()
 }
+
+
+func TestBarrierWaitsAfterPriorDisableOrExpiredLease(t *testing.T) {
+	for _, mode := range []string{"disabled", "expired-lease"} {
+		t.Run(mode, func(t *testing.T) {
+			l := New(100,100)
+			if mode == "expired-lease" {
+				l.RequireLease()
+				l.RenewLease(time.Now().Add(300*time.Millisecond))
+			}
+			stopped := 0
+			untrack,err:=l.TrackConnection(func(){ stopped++ })
+			if err!=nil {t.Fatal(err)}
+			if mode=="disabled" {
+				l.Update(100,100,true)
+			} else {
+				l.SweepLease(time.Now().Add(time.Second))
+			}
+			if stopped!=1 {t.Fatalf("initial stop callback count=%d",stopped)}
+			ctx,cancel:=context.WithTimeout(context.Background(),40*time.Millisecond)
+			defer cancel()
+			if err:=l.DrainForRateBarrier(ctx);!errors.Is(err,context.DeadlineExceeded) {
+				t.Fatalf("signed while stopped flow had not actually exited: %v",err)
+			}
+			if stopped!=1 {t.Fatalf("socket close issued more than once: %d",stopped)}
+			untrack()
+			ctx2,cancel2:=context.WithTimeout(context.Background(),time.Second)
+			defer cancel2()
+			if err:=l.DrainForRateBarrier(ctx2);err!=nil {t.Fatal(err)}
+		})
+	}
+}
