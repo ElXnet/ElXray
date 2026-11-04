@@ -18,12 +18,14 @@ type ControlLease struct {
 	Sequence     int64
 	NotBefore    int64
 	NotAfter     int64
+	CeilingUp    int64
+	CeilingDown  int64
 	Signature    []byte
 }
 
 func ControlLeaseTranscript(t ControlLease) []byte {
-	return fmt.Appendf(nil, "elx-control-lease-v1\n%s\n%s\n%d\n%d\n%d",
-		t.NodeID, t.Subscription, t.Sequence, t.NotBefore, t.NotAfter)
+	return fmt.Appendf(nil, "elx-control-lease-v2\n%s\n%s\n%d\n%d\n%d\n%d\n%d",
+		t.NodeID, t.Subscription, t.Sequence, t.NotBefore, t.NotAfter, t.CeilingUp, t.CeilingDown)
 }
 
 // RenewControlLease verifies a server-signed ticket, enforces a short absolute
@@ -37,6 +39,7 @@ func (m *Instance) RenewControlLease(t ControlLease) error {
 		t.Sequence <= 0 || t.NotBefore > now.Unix()+5 ||
 		t.NotBefore < now.Unix()-30 || t.NotAfter <= now.Unix() ||
 		t.NotAfter-t.NotBefore <= 0 || t.NotAfter-t.NotBefore > 30 ||
+		t.CeilingUp <= 0 || t.CeilingDown <= 0 ||
 		len(t.Signature) != ed25519.SignatureSize ||
 		!ed25519.Verify(m.leasePublicKey, ControlLeaseTranscript(t), t.Signature) {
 		return errors.New("untrusted or expired Control lease")
@@ -49,6 +52,11 @@ func (m *Instance) RenewControlLease(t ControlLease) error {
 	p, ok := m.subscriptionPolicies[t.Subscription]
 	if !ok || len(p.Emails) == 0 {
 		return errors.New("unknown managed lease subscription")
+	}
+	// A valid signature is not sufficient if the running core is configured
+	// above its actual reserved grant: never enable higher uncommitted rates.
+	if p.UplinkBps > uint64(t.CeilingUp) || p.DownlinkBps > uint64(t.CeilingDown) {
+		return errors.New("core subscription exceeds Control committed speed ceiling")
 	}
 	if t.Sequence <= m.leaseSeq[t.Subscription] {
 		return errors.New("replayed or stale Control lease sequence")
