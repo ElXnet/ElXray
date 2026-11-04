@@ -83,7 +83,9 @@ func TestSignedRateBarrierRequiresDurablePolicyAndDrain(t *testing.T) {
 	}()
 	select {
 	case err := <-policyRead:
-		if err != nil {t.Fatal(err)}
+		if err != nil {
+			t.Fatal(err)
+		}
 	case <-time.After(200 * time.Millisecond):
 		t.Fatal("rate barrier held global policy lock while waiting for socket exit")
 	}
