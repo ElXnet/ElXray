@@ -6,6 +6,7 @@ import (
 	"errors"
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -32,10 +33,11 @@ type Limits struct {
 // Budget is a byte token bucket. Waiters do not reserve future credit: a policy
 // change can wake them immediately without inheriting old-rate reservations.
 type Budget struct {
-	owner  *Limits
-	rate   uint64
-	tokens float64
-	last   time.Time
+	owner   *Limits
+	rate    uint64
+	tokens  float64
+	payload atomic.Uint64
+	last    time.Time
 }
 
 func New(uplink, downlink uint64) *Limits {
@@ -151,3 +153,13 @@ func (b *Budget) WaitN(ctx context.Context, n int) error {
 		}
 	}
 }
+
+// RecordPayload counts bytes accepted at the dispatcher boundary. It does
+// not count limiter reservations or wire overhead.
+func (b *Budget) RecordPayload(n int32) {
+	if n > 0 {
+		b.payload.Add(uint64(n))
+	}
+}
+
+func (b *Budget) PayloadBytes() uint64 { return b.payload.Load() }

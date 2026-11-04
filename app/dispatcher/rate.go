@@ -59,7 +59,8 @@ func (w *RateWriter) WriteMultiBuffer(mb buf.MultiBuffer) error {
 	for len(mb) > 0 {
 		var chunk buf.MultiBuffer
 		mb, chunk = takeRateChunk(mb)
-		if err := waitRate(w.ctx, w.limiter, chunk.Len()); err != nil {
+		size := chunk.Len()
+		if err := waitRate(w.ctx, w.limiter, size); err != nil {
 			buf.ReleaseMulti(chunk)
 			buf.ReleaseMulti(mb)
 			return err
@@ -68,6 +69,7 @@ func (w *RateWriter) WriteMultiBuffer(mb buf.MultiBuffer) error {
 			buf.ReleaseMulti(mb)
 			return err
 		}
+		w.limiter.RecordPayload(size)
 	}
 	return nil
 }
@@ -124,6 +126,7 @@ func (r *rateReader) ReadMultiBuffer() (buf.MultiBuffer, error) {
 		r.Interrupt()
 		return nil, limitErr
 	}
+	r.limiter.RecordPayload(chunk.Len())
 	return chunk, err
 }
 

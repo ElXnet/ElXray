@@ -2,6 +2,7 @@ package policy
 
 import (
 	"context"
+	"crypto/rand"
 	"os"
 	"slices"
 	"strings"
@@ -20,6 +21,8 @@ type Instance struct {
 	subscriptions        map[string]*subscriptionrate.Limits
 	subscriptionMu       sync.Mutex
 	store                *policyStore
+	usageIncarnation     [16]byte
+	usageSequences       map[string]uint64
 	subscriptionPolicies map[string]subscriptionrate.Policy
 }
 
@@ -34,6 +37,7 @@ func New(ctx context.Context, config *Config) (*Instance, error) {
 		system:               config.System,
 		subscriptions:        subscriptions,
 		subscriptionPolicies: make(map[string]subscriptionrate.Policy),
+		usageSequences:       make(map[string]uint64),
 	}
 	if config.RequireSubscription {
 		m.unmanaged = subscriptionrate.New(0, 0)
@@ -50,6 +54,11 @@ func New(ctx context.Context, config *Config) (*Instance, error) {
 		if err := m.restorePolicies(path); err != nil {
 			return nil, err
 		}
+		if _, err := rand.Read(m.usageIncarnation[:]); err != nil {
+			return nil, err
+		}
+		m.usageIncarnation[6] = m.usageIncarnation[6]&0x0f | 0x40
+		m.usageIncarnation[8] = m.usageIncarnation[8]&0x3f | 0x80
 		for _, p := range m.subscriptionPolicies {
 			m.subscriptions[strings.ToLower(p.Emails[0])].Update(p.UplinkBps, p.DownlinkBps, p.Disabled)
 		}
