@@ -28,6 +28,7 @@ type Limits struct {
 	leaseRequired bool
 	leaseDeadline time.Time
 	leaseTripped  bool
+	barrierActive bool
 	connections   map[*connectionStop]struct{}
 	Uplink        *Budget
 	Downlink      *Budget
