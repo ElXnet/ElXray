@@ -30,24 +30,39 @@ jobs:
     needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      GH_TOKEN: ${{ secrets.UPSTREAM_SYNC_TOKEN }}
     steps:
-      - name: Verify token is configured
+      - name: Verify GitHub App credentials
+        env:
+          CLIENT_ID: ${{ vars.ELX_SYNC_APP_CLIENT_ID }}
+          PRIVATE_KEY: ${{ secrets.ELX_SYNC_APP_PRIVATE_KEY }}
         run: |
-          if [ -z "$GH_TOKEN" ]; then
-            echo '::error::Add UPSTREAM_SYNC_TOKEN in Settings > Secrets and variables > Actions.'
+          if [ -z "$CLIENT_ID" ] || [ -z "$PRIVATE_KEY" ]; then
+            echo '::error::Configure ELX_SYNC_APP_CLIENT_ID (variable) and ELX_SYNC_APP_PRIVATE_KEY (secret) for this repository in organization Actions settings.'
             exit 1
           fi
+      - name: Create scoped GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.ELX_SYNC_APP_CLIENT_ID }}
+          private-key: ${{ secrets.ELX_SYNC_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ElXray
+          permission-contents: write
+          permission-pull-requests: write
+          permission-workflows: write
       - uses: actions/checkout@v7
         with:
           ref: main
           fetch-depth: 0
-          token: ${{ secrets.UPSTREAM_SYNC_TOKEN }}
+          persist-credentials: true
+          token: ${{ steps.app-token.outputs.token }}
       - name: Set up Go for Protobuf regeneration
         uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           check-latest: true
       - name: Prepare upstream release pull request
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: python3 .github/scripts/sync_upstream.py
