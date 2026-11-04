@@ -25,6 +25,8 @@ type Limits struct {
 	mu          sync.Mutex
 	changed     chan struct{}
 	disabled    bool
+	leaseRequired bool
+	leaseDeadline time.Time
 	connections map[*connectionStop]struct{}
 	Uplink      *Budget
 	Downlink    *Budget
@@ -65,7 +67,7 @@ type connectionStop struct {
 func (l *Limits) TrackConnection(close func()) (func(), error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.disabled {
+	if l.disabled || l.leaseDue(time.Now()) {
 		return nil, ErrDisabled
 	}
 	entry := &connectionStop{close: close}
@@ -78,6 +80,54 @@ func (l *Limits) TrackConnection(close func()) (func(), error) {
 		delete(l.connections, entry)
 		l.mu.Unlock()
 	}, nil
+}
+
+// RequireLease makes the budget fail closed until a verified Control
+// heartbeat is installed. It does not change subscribed rates or issue a
+// session-release receipt; occupied device slots remain accounted for.
+func (l *Limits) RequireLease() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.leaseRequired = true
+	l.leaseDeadline = time.Time{}
+}
+
+// RenewLease is called ONLY by the core's Ed25519-verifying policy manager.
+// The deadline is a wall-clock upper bound: replaying a signed ticket cannot
+// extend its original lifetime. It may only increase, never roll back.
+func (l *Limits) RenewLease(deadline time.Time) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if !l.leaseRequired || !deadline.After(time.Now()) || !deadline.After(l.leaseDeadline) {
+		return
+	}
+	l.leaseDeadline = deadline
+	close(l.changed)
+	l.changed = make(chan struct{})
+}
+
+func (l *Limits) leaseDue(now time.Time) bool {
+	return l.leaseRequired && !now.Before(l.leaseDeadline)
+}
+
+// SweepLease aborts ALL tracked sockets after expiry, including idle
+// connections that would otherwise never reach WaitN. The caller repeats
+// this for active subscriptions; closing callbacks run outside l.mu.
+func (l *Limits) SweepLease(now time.Time) bool {
+	l.mu.Lock()
+	if !l.leaseDue(now) {
+		l.mu.Unlock()
+		return false
+	}
+	stopped := l.connections
+	l.connections = nil
+	close(l.changed)
+	l.changed = make(chan struct{})
+	l.mu.Unlock()
+	for f := range stopped {
+		f.close()
+	}
+	return true
 }
 
 // Update atomically changes both rates and admission state, preserving credit.
@@ -107,7 +157,7 @@ func (b *Budget) AllowN(now time.Time, n int) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	b.refill(now)
-	if n < 0 || n > Burst || l.disabled {
+	if n < 0 || n > Burst || l.disabled || l.leaseDue(now) {
 		return false
 	}
 	if b.rate != 0 && b.tokens < float64(n) {
@@ -130,7 +180,7 @@ func (b *Budget) WaitN(ctx context.Context, n int) error {
 		l.mu.Lock()
 		now := time.Now()
 		b.refill(now)
-		if l.disabled {
+		if l.disabled || l.leaseDue(now) {
 			l.mu.Unlock()
 			return ErrDisabled
 		}
