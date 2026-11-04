@@ -2,6 +2,7 @@ package policy
 
 import (
 	"context"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -18,6 +19,7 @@ type Instance struct {
 	system               *SystemPolicy
 	subscriptions        map[string]*subscriptionrate.Limits
 	subscriptionMu       sync.Mutex
+	store                *policyStore
 	subscriptionPolicies map[string]subscriptionrate.Policy
 }
 
@@ -43,6 +45,14 @@ func New(ctx context.Context, config *Config) (*Instance, error) {
 			revision = 1
 		}
 		m.subscriptionPolicies[id] = subscriptionrate.Policy{ID: id, Emails: slices.Clone(p.Emails), UplinkBps: p.UplinkBps, DownlinkBps: p.DownlinkBps, Revision: revision, Disabled: p.Disabled}
+	}
+	if path := os.Getenv("ELXRAY_POLICY_STATE"); path != "" {
+		if err := m.restorePolicies(path); err != nil {
+			return nil, err
+		}
+		for _, p := range m.subscriptionPolicies {
+			m.subscriptions[strings.ToLower(p.Emails[0])].Update(p.UplinkBps, p.DownlinkBps, p.Disabled)
+		}
 	}
 	if len(config.Level) > 0 {
 		for lv, p := range config.Level {
@@ -91,6 +101,12 @@ func (m *Instance) Start() error {
 
 // Close implements common.Closable.Close().
 func (m *Instance) Close() error {
+	m.subscriptionMu.Lock()
+	defer m.subscriptionMu.Unlock()
+	if m.store != nil {
+		m.store.failed = true
+		return m.store.lock.Close()
+	}
 	return nil
 }
 

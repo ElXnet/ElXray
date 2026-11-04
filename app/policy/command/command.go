@@ -2,6 +2,7 @@ package command
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"net"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/xtls/xray-core/features/policy"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
@@ -67,6 +69,26 @@ func (s *service) GetSubscription(ctx context.Context, r *GetSubscriptionRequest
 	p, err := s.manager.GetSubscription(r.Id)
 	if err != nil {
 		return nil, rpcError(err)
+	}
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		if challenge := md.Get("elx-policy-challenge"); len(challenge) != 0 {
+			if len(challenge) != 1 || len(challenge[0]) < 1 || len(challenge[0]) > 128 {
+				return nil, status.Error(codes.InvalidArgument, "invalid policy challenge")
+			}
+			signer, ok := s.manager.(interface {
+				DurablePolicyProof(subscriptionrate.Policy, string) ([]byte, error)
+			})
+			if !ok {
+				return nil, status.Error(codes.FailedPrecondition, "durable policy unavailable")
+			}
+			proof, err := signer.DurablePolicyProof(p, challenge[0])
+			if err != nil {
+				return nil, status.Error(codes.FailedPrecondition, "durable policy unavailable")
+			}
+			if err := grpc.SetHeader(ctx, metadata.Pairs("elx-policy-proof", hex.EncodeToString(proof))); err != nil {
+				return nil, err
+			}
+		}
 	}
 	return response(p), nil
 }
