@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/xtls/xray-core/common/platform"
+	"github.com/google/uuid"
 	"github.com/xtls/xray-core/common/subscriptionrate"
 	"github.com/xtls/xray-core/features"
 )
@@ -86,6 +87,26 @@ type SubscriptionManager interface {
 type SubscriptionController interface {
 	GetSubscription(string) (subscriptionrate.Policy, error)
 	UpdateSubscription(subscriptionrate.Update) (subscriptionrate.Policy, error)
+}
+
+// ProfileDrainRequest names the exact Control-owned VLESS session generation.
+// ProfileID MUST be the authenticated VLESS account UUID, not an IP address,
+// email alias, or a claimed HWID. The Control backend independently validates
+// OwnerID, NodeID, Generation, ProfileID and core incarnation on receipt.
+type ProfileDrainRequest struct {
+	OwnerID     uuid.UUID
+	ProfileID   uuid.UUID
+	NodeID      uuid.UUID
+	Incarnation uuid.UUID
+	Generation  int64
+}
+
+// VLESSProfileManager is an optional extension implemented by ElXray policy
+// when authenticated, per-profile denial and signed drain are available.
+type VLESSProfileManager interface {
+	RegisterVLESSProfile(uuid.UUID)
+	TrackVLESSProfile(uuid.UUID, func()) (func(), error)
+	DrainVLESSProfile(context.Context, ProfileDrainRequest) ([]byte, error)
 }
 
 // ManagerType returns the type of Manager interface. Can be used to implement common.HasType.
