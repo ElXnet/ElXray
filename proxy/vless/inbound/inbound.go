@@ -624,24 +624,24 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection s
 		ctx = flowCtx
 	}
 
-	// Forward requests keep the connection registered until dispatch returns.
-	// Reverse workers outlive Process and need their own lifecycle hook.
-	if request.Command != protocol.RequestCommandRvs {
-		if manager, ok := h.policyManager.(policy.SubscriptionManager); ok {
-			if limits := manager.ForEmail(request.User.Email); limits != nil {
-				flowCtx, cancel := context.WithCancel(ctx)
-				defer cancel()
-				untrack, err := limits.TrackConnection(func() {
-					cancel()
-					_ = connection.SetDeadline(time.Now())
-					_ = connection.Close()
-				})
-				if err != nil {
-					return errors.New("subscription does not allow forwarding").Base(err)
-				}
-				defer untrack()
-				ctx = flowCtx
+	// All authenticated VLESS flows, including reverse/Mux root workers,
+	// must be tracked by the subscription budget. Otherwise reverse
+	// connections would bypass the mandatory signed-lease expiry and
+	// signed rate-reduction drain barrier.
+	if manager, ok := h.policyManager.(policy.SubscriptionManager); ok {
+		if limits := manager.ForEmail(request.User.Email); limits != nil {
+			flowCtx, cancel := context.WithCancel(ctx)
+			defer cancel()
+			untrack, err := limits.TrackConnection(func() {
+				cancel()
+				_ = connection.SetDeadline(time.Now())
+				_ = connection.Close()
+			})
+			if err != nil {
+				return errors.New("subscription does not allow forwarding").Base(err)
 			}
+			defer untrack()
+			ctx = flowCtx
 		}
 	}
 
