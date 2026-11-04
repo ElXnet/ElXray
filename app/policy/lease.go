@@ -43,6 +43,9 @@ func (m *Instance) RenewControlLease(t ControlLease) error {
 	}
 	m.subscriptionMu.Lock()
 	defer m.subscriptionMu.Unlock()
+	if m.store == nil || m.store.failed {
+		return errors.New("durable ElXray policy state unavailable for lease")
+	}
 	p, ok := m.subscriptionPolicies[t.Subscription]
 	if !ok || len(p.Emails) == 0 {
 		return errors.New("unknown managed lease subscription")
