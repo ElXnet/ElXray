@@ -7,6 +7,8 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/binary"
+	"fmt"
 	"errors"
 	"os"
 	"path/filepath"
@@ -99,6 +101,46 @@ func TestSignedControlLeaseRequiresNodeAndAbsoluteExpiry(t *testing.T) {
 	}
 	if err := m.RenewControlLease(sign(ticket)); err != nil {
 		t.Fatal(err)
+	}
+	nonce := "00112233445566778899aabbccddeeff"
+	proof, err := m.SignedLeaseAcceptance("lab", nonce)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(proof) != leaseAcceptanceBytes+ed25519.SignatureSize {
+		t.Fatalf("malformed signed core acceptance: %d", len(proof))
+	}
+	data := proof[:leaseAcceptanceBytes]
+	transcript := fmt.Appendf(nil, "elx-lease-accept-v1\n%x\n%x\n%x", nonce, "lab", data)
+	if !ed25519.Verify(coreKey.Public().(ed25519.PublicKey),
+		transcript, proof[leaseAcceptanceBytes:]) {
+		t.Fatal("signed lease acceptance did not use the durable core key")
+	}
+	if binary.BigEndian.Uint64(data[32:40]) != 2 ||
+		binary.BigEndian.Uint64(data[40:48]) != uint64(ticket.NotAfter) ||
+		binary.BigEndian.Uint64(data[48:56]) != 100 ||
+		binary.BigEndian.Uint64(data[56:64]) != 200 ||
+		binary.BigEndian.Uint64(data[64:72]) != 1 {
+		t.Fatal("signed lease proof not bound to accepted ticket and live policy")
+	}
+	if ed25519.Verify(coreKey.Public().(ed25519.PublicKey),
+		fmt.Appendf(nil, "elx-lease-accept-v1\n%x\n%x\n%x",
+			"ffeeddccbbaa99887766554433221100", "lab", data),
+		proof[leaseAcceptanceBytes:]) {
+		t.Fatal("core lease proof replayed with a different Control nonce")
+	}
+	if _, err := m.SignedLeaseAcceptance("other", nonce); err == nil {
+		t.Fatal("accepted unassigned lease subscription")
+	}
+	_, err = m.UpdateSubscription(subscriptionrate.Update{
+		ID:"lab",ExpectedRevision:1,Revision:2,
+		UplinkBps:100,DownlinkBps:200,Disabled:true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.SignedLeaseAcceptance("lab", nonce); err == nil {
+		t.Fatal("disabled core signed an active lease proof")
 	}
 }
 
