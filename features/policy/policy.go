@@ -109,9 +109,11 @@ type VLESSProfileManager interface {
 	DrainVLESSProfile(context.Context, ProfileDrainRequest) ([]byte, error)
 }
 
-// RateBarrierRequest names one committed rate-grant revision. The core
-// signs it only after its exact reduced policy is durable AND all previously
-// authenticated subscription flows are drained. All UUIDs are canonical.
+// RateBarrierRequest names one committed rate-grant revision. For positive
+// speed reductions, the core signs only after durable in-place enforcement
+// and quiescence of older dispatcher payload transfers. For full disabling,
+// all previously authenticated flows must instead be drained. All UUIDs
+// are canonical.
 type RateBarrierRequest struct {
 	EntitlementID uuid.UUID
 	NodeID        uuid.UUID
