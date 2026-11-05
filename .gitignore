@@ -66,3 +66,13 @@ ehthumbs.db
 # Other common ignores
 *.bak
 *.tmp
+
+# Test fixtures downloaded by ElX-control's full suite. Raw *.dat files are
+# ignored above; their verification checksums must also be ignored to avoid
+# making the sibling ElXray checkout dirty after each successful test run.
+/resources/*.sha256sum
+
+# Python test/unittest bytecode generated under testing/subscriptionrate.
+__pycache__/
+*.py[cod]
+.pytest_cache/
