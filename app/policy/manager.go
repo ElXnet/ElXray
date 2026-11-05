@@ -35,6 +35,7 @@ type Instance struct {
 	leasePublicKey       ed25519.PublicKey
 	leaseNodeID          uuid.UUID
 	leaseSeq             map[string]int64
+	leaseAccepted        map[string]ControlLease
 	leaseCancel          context.CancelFunc
 }
 
@@ -74,6 +75,7 @@ func New(ctx context.Context, config *Config) (*Instance, error) {
 		m.leasePublicKey = ed25519.PublicKey(pub)
 		m.leaseNodeID = node
 		m.leaseSeq = make(map[string]int64)
+		m.leaseAccepted = make(map[string]ControlLease)
 		seen := make(map[*subscriptionrate.Limits]bool)
 		for _, limit := range m.subscriptions {
 			if !seen[limit] {
