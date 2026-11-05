@@ -133,8 +133,8 @@ func TestSignedControlLeaseRequiresNodeAndAbsoluteExpiry(t *testing.T) {
 		t.Fatal("accepted unassigned lease subscription")
 	}
 	_, err = m.UpdateSubscription(subscriptionrate.Update{
-		ID:"lab",ExpectedRevision:1,Revision:2,
-		UplinkBps:100,DownlinkBps:200,Disabled:true,
+		ID: "lab", ExpectedRevision: 1, Revision: 2,
+		UplinkBps: 100, DownlinkBps: 200, Disabled: true,
 	})
 	if err != nil {
 		t.Fatal(err)
