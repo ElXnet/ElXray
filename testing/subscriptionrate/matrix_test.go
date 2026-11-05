@@ -72,6 +72,19 @@ func TestSubscriptionMuxAndUDP(t *testing.T) {
 				}
 				id := uuid.New()
 				serverPort, clientPort := tcp.PickPort(), tcp.PickPort()
+				if network == net.Network_UDP {
+					// PickPort reserves a TCP port in a fixed test range. On
+					// Windows, some of those numbers are excluded for UDP;
+					// discover an actually bindable ephemeral UDP port.
+					probe, err := stdnet.ListenPacket("udp", "127.0.0.1:0")
+					if err != nil {
+						t.Fatal(err)
+					}
+					clientPort = net.Port(probe.LocalAddr().(*stdnet.UDPAddr).Port)
+					if err := probe.Close(); err != nil {
+						t.Fatal(err)
+					}
+				}
 				apps := func() []*serial.TypedMessage {
 					return []*serial.TypedMessage{serial.ToTypedMessage(&dispatcher.Config{}), serial.ToTypedMessage(&proxyman.InboundConfig{}), serial.ToTypedMessage(&proxyman.OutboundConfig{})}
 				}
