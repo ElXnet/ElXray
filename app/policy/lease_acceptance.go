@@ -56,8 +56,7 @@ func (m *Instance) SignedLeaseAcceptance(id, challenge string) ([]byte, error) {
 	if limits == nil {
 		return nil, errors.New("subscription limiter is not enrolled")
 	}
-	deadline, active := limits.ActiveLeaseDeadline()
-	if !active || deadline.Unix() != ticket.NotAfter {
+	if _, active := limits.ActiveLeaseDeadline(); !active {
 		return nil, errors.New("Control lease not enforced by current core")
 	}
 	data := make([]byte, 0, leaseAcceptanceBytes)
