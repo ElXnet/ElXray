@@ -68,10 +68,11 @@ func (m *Instance) RenewControlLease(t ControlLease) error {
 	// Convert the signed wall-clock expiry to a monotonic local deadline.
 	// Do not acknowledge a ticket until the limiter accepted that deadline.
 	// A no-op renewal or a tripped lease is not proof of live admission.
-	limits.RenewLease(time.Now().Add(time.Until(time.Unix(t.NotAfter, 0))))
-	deadline, active := limits.ActiveLeaseDeadline()
-	if !active || deadline.Unix() != t.NotAfter {
+	if !limits.RenewLease(time.Now().Add(time.Until(time.Unix(t.NotAfter, 0)))) {
 		return errors.New("Control lease was not installed in live limiter")
+	}
+	if _, active := limits.ActiveLeaseDeadline(); !active {
+		return errors.New("Control lease enforcement is not active")
 	}
 	m.leaseSeq[t.Subscription] = t.Sequence
 	m.leaseAccepted[t.Subscription] = t
