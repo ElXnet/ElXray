@@ -61,13 +61,19 @@ func (m *Instance) RenewControlLease(t ControlLease) error {
 	if t.Sequence <= m.leaseSeq[t.Subscription] {
 		return errors.New("replayed or stale Control lease sequence")
 	}
-	m.leaseSeq[t.Subscription] = t.Sequence
 	limits := m.subscriptions[strings.ToLower(p.Emails[0])]
 	if limits == nil {
 		return errors.New("unprovisioned subscription lease")
 	}
-	// Convert the wall-clock signed expiry to a monotonic local deadline.
-	// An NTP adjustment after receipt must not prolong a partitioned lease.
+	// Convert the signed wall-clock expiry to a monotonic local deadline.
+	// Do not acknowledge a ticket until the limiter accepted that deadline.
+	// A no-op renewal or a tripped lease is not proof of live admission.
 	limits.RenewLease(time.Now().Add(time.Until(time.Unix(t.NotAfter, 0))))
+	deadline, active := limits.ActiveLeaseDeadline()
+	if !active || deadline.Unix() != t.NotAfter {
+		return errors.New("Control lease was not installed in live limiter")
+	}
+	m.leaseSeq[t.Subscription] = t.Sequence
+	m.leaseAccepted[t.Subscription] = t
 	return nil
 }
