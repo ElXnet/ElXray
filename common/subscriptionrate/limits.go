@@ -138,6 +138,21 @@ func (l *Limits) RequireLease() {
 	l.leaseTripped = true
 }
 
+// ActiveLeaseDeadline reports the precise, enforced monotonic deadline only
+// when the current managed subscription is still admitted. A Control lease
+// ticket that was issued but not installed in this limiter MUST NOT produce
+// an authenticated acceptance proof. A disabled/expired/tripped lease cannot
+// be resurrected by a signed pressure sample.
+func (l *Limits) ActiveLeaseDeadline() (time.Time, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := time.Now()
+	if !l.leaseRequired || l.disabled || l.barrierActive || l.leaseDue(now) {
+		return time.Time{}, false
+	}
+	return l.leaseDeadline, true
+}
+
 // RenewLease is called ONLY by the core's Ed25519-verifying policy manager.
 // The deadline is a wall-clock upper bound: replaying a signed ticket cannot
 // extend its original lifetime. It may only increase, never roll back.
