@@ -29,6 +29,11 @@ type Limits struct {
 	leaseDeadline time.Time
 	leaseTripped  bool
 	barrierActive bool
+	// rateQuiescing pauses new rate-guarded payload transfers without
+	// disconnecting a VPN session. Existing transfers finish before the
+	// signed lower-rate commitment can be released by Control.
+	rateQuiescing bool
+	inflightRate  int
 	connections   map[*connectionStop]struct{}
 	Uplink        *Budget
 	Downlink      *Budget
@@ -228,6 +233,107 @@ func (l *Limits) DrainForRateBarrier(ctx context.Context) error {
 		case <-ticker.C:
 		}
 	}
+}
+
+// BeginRateTransfer protects one payload chunk, including token acquisition
+// and delivery to the next dispatcher writer. A signed non-disruptive barrier
+// must wait for every earlier chunk to leave this region before it signs.
+// This guard belongs to the existing shared subscription budget, not a
+// connection-specific limiter, so all of its TCP/UDP/Mux flows participate.
+//
+// New transfers wait briefly during a quiet rate barrier. They do NOT receive
+// ErrDisabled and existing sockets remain registered. The returned release
+// function must be called once on every path (including write failure and
+// canceled token waits). It is safe to call more than once.
+func (b *Budget) BeginRateTransfer(ctx context.Context) (func(), error) {
+	l := b.owner
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		l.mu.Lock()
+		if l.disabled || l.barrierActive || l.leaseDue(time.Now()) {
+			l.mu.Unlock()
+			return nil, ErrDisabled
+		}
+		if l.rateQuiescing {
+			changed := l.changed
+			l.mu.Unlock()
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-changed:
+				continue
+			}
+		}
+		l.inflightRate++
+		l.mu.Unlock()
+		var once sync.Once
+		return func() {
+			once.Do(func() {
+				l.mu.Lock()
+				l.inflightRate--
+				if l.inflightRate == 0 && l.rateQuiescing {
+					close(l.changed)
+					l.changed = make(chan struct{})
+				}
+				l.mu.Unlock()
+			})
+		}, nil
+	}
+}
+
+// WithQuietRateBarrier proves that no payload chunk admitted under the old
+// rate remains in the instrumented dispatcher path. Unlike a profile drain,
+// it preserves tracked VPN connections and the lower in-place token buckets.
+// The caller must have already persisted the reduced policy and MUST recheck
+// its exact core revision while signing. If an unbounded downstream write
+// blocks, the context expires, no proof is emitted and Control must keep the
+// old rate commitment reserved.
+func (l *Limits) WithQuietRateBarrier(ctx context.Context, prove func() ([]byte, error)) ([]byte, error) {
+	if prove == nil {
+		return nil, errors.New("rate barrier proof function is required")
+	}
+	l.mu.Lock()
+	if l.rateQuiescing || l.barrierActive {
+		l.mu.Unlock()
+		return nil, errors.New("subscription rate barrier already in progress")
+	}
+	l.rateQuiescing = true
+	close(l.changed)
+	l.changed = make(chan struct{})
+	l.mu.Unlock()
+	defer func() {
+		l.mu.Lock()
+		l.rateQuiescing = false
+		close(l.changed)
+		l.changed = make(chan struct{})
+		l.mu.Unlock()
+	}()
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		l.mu.Lock()
+		if l.inflightRate == 0 {
+			l.mu.Unlock()
+			break
+		}
+		changed := l.changed
+		l.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-changed:
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	// Keep new dispatcher transfers paused across the exact-revision
+	// readback and signature. Do not hold l.mu while prove takes the policy
+	// manager lock; UpdateSubscription acquires them in the opposite order.
+	return prove()
 }
 
 // Update atomically changes both rates and admission state, preserving credit.
