@@ -2,6 +2,7 @@ package dispatcher
 
 import (
 	"context"
+	"io"
 	"sync"
 	"testing"
 	"time"
@@ -127,9 +128,12 @@ func TestRateReaderWaitsThroughQuietBarrierWithoutDroppingPayload(t *testing.T) 
 	}
 	select {
 	case got := <-result:
-		if got.err != nil || got.payload.Len() != int32(len("preserved")) {
+		size := got.payload.Len()
+		// The fixture returns the final bytes together with io.EOF. That
+		// is a normal Reader contract, not a lost or disconnected stream.
+		if (got.err != nil && got.err != io.EOF) || size != int32(len("preserved")) {
 			buf.ReleaseMulti(got.payload)
-			t.Fatalf("payload lost across quiet barrier: %v, %d", got.err, got.payload.Len())
+			t.Fatalf("payload lost across quiet barrier: %v, %d", got.err, size)
 		}
 		buf.ReleaseMulti(got.payload)
 	case <-ctx.Done():
