@@ -80,3 +80,59 @@ func TestRateWriterQuietBarrierWaitsForInFlightDelivery(t *testing.T) {
 		t.Fatalf("existing VPN stream stopped after rate reduction: %v", err)
 	}
 }
+
+func TestRateReaderWaitsThroughQuietBarrierWithoutDroppingPayload(t *testing.T) {
+	limits := subscriptionrate.New(1000, 1000)
+	reader := newRateReader(context.Background(), &finalBufferReader{
+		payload: buf.MultiBuffer{buf.FromBytes([]byte("preserved"))},
+	}, limits.Uplink)
+	defer reader.Close()
+	entered := make(chan struct{})
+	releaseProof := make(chan struct{})
+	barrierDone := make(chan error, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
+	defer cancel()
+	go func() {
+		_, err := limits.WithQuietRateBarrier(ctx, func() ([]byte, error) {
+			close(entered)
+			<-releaseProof
+			return []byte("proof"), nil
+		})
+		barrierDone <- err
+	}()
+	select {
+	case <-entered:
+	case <-ctx.Done():
+		t.Fatal("quiet read barrier not established")
+	}
+	type received struct {
+		payload buf.MultiBuffer
+		err     error
+	}
+	result := make(chan received, 1)
+	go func() {
+		mb, err := reader.ReadMultiBuffer()
+		result <- received{payload: mb, err: err}
+	}()
+	select {
+	case got := <-result:
+		buf.ReleaseMulti(got.payload)
+		t.Fatalf("reader bypassed quiet rate gate: %v", got.err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	limits.Update(200, 200, false)
+	close(releaseProof)
+	if err := <-barrierDone; err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-result:
+		if got.err != nil || got.payload.Len() != int32(len("preserved")) {
+			buf.ReleaseMulti(got.payload)
+			t.Fatalf("payload lost across quiet barrier: %v, %d", got.err, got.payload.Len())
+		}
+		buf.ReleaseMulti(got.payload)
+	case <-ctx.Done():
+		t.Fatal("reader did not resume after signed rate barrier")
+	}
+}
