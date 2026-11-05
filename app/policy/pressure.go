@@ -57,17 +57,13 @@ func (m *Instance) SignedPressure(id, challenge string) ([]byte, error) {
 	data = binary.BigEndian.AppendUint64(data, p.Revision)
 	data = binary.BigEndian.AppendUint64(data, p.UplinkBps)
 	data = binary.BigEndian.AppendUint64(data, p.DownlinkBps)
-	for _, pressure := range [2]struct {
-		payload, blockedCalls, blockedNanos uint64
-		waiters uint64
-	}{
+	for _, counters := range [2][4]uint64{
 		{u.PayloadBytes, u.BlockedCalls, u.BlockedNanos, uint64(u.ActiveWaiters)},
 		{d.PayloadBytes, d.BlockedCalls, d.BlockedNanos, uint64(d.ActiveWaiters)},
 	} {
-		data = binary.BigEndian.AppendUint64(data, pressure.payload)
-		data = binary.BigEndian.AppendUint64(data, pressure.blockedCalls)
-		data = binary.BigEndian.AppendUint64(data, pressure.blockedNanos)
-		data = binary.BigEndian.AppendUint64(data, pressure.waiters)
+		for _, counter := range counters {
+			data = binary.BigEndian.AppendUint64(data, counter)
+		}
 	}
 	transcript := fmt.Appendf(nil, "elx-pressure-v1\n%x\n%x\n%x", challenge, id, data)
 	return append(data, ed25519.Sign(m.store.key, transcript)...), nil
