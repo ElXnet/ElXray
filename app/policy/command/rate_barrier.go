@@ -37,7 +37,7 @@ func (r *rateBarrierHandler) prove(ctx context.Context, in *wrapperspb.BytesValu
 	defer cancel()
 	proof, err := r.core.ProveRateBarrier(ctx, request)
 	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, "rate reduction not fully applied and drained")
+		return nil, status.Error(codes.FailedPrecondition, "rate reduction not durable or transfer barrier incomplete")
 	}
 	return wrapperspb.Bytes(proof), nil
 }
