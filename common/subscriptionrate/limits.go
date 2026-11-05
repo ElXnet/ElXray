@@ -156,12 +156,12 @@ func (l *Limits) ActiveLeaseDeadline() (time.Time, bool) {
 // RenewLease is called ONLY by the core's Ed25519-verifying policy manager.
 // The deadline is a wall-clock upper bound: replaying a signed ticket cannot
 // extend its original lifetime. It may only increase, never roll back.
-func (l *Limits) RenewLease(deadline time.Time) {
+func (l *Limits) RenewLease(deadline time.Time) bool {
 	l.mu.Lock()
 	now := time.Now()
 	if !l.leaseRequired || !deadline.After(now) || !deadline.After(l.leaseDeadline) {
 		l.mu.Unlock()
-		return
+		return false
 	}
 	// An expired lease requires a fresh VPN handshake. Even if the watchdog
 	// has not yet fired, a late renewal must not resurrect old idle sockets.
@@ -177,6 +177,7 @@ func (l *Limits) RenewLease(deadline time.Time) {
 	for _, stop := range stopped {
 		stop()
 	}
+	return true
 }
 
 func (l *Limits) leaseDue(now time.Time) bool {
