@@ -62,13 +62,17 @@ func TestBlackholeCustomResponse(t *testing.T) {
 	reader, writer := pipe.New(pipe.WithoutSizeLimit())
 	var actual buf.MultiBuffer
 	var rerr error
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		actual, rerr = reader.ReadMultiBuffer()
 	}()
 
 	link := transport.Link{Reader: reader, Writer: writer}
 	common.Must(handler.Process(ctx, &link, nil))
+	<-done
 	common.Must(rerr)
+	defer buf.ReleaseMulti(actual)
 
 	if actual.String() != string(expected) {
 		t.Errorf("custom response mismatch")

@@ -248,7 +248,7 @@ func Test_ListenXHAndDial_QUIC(t *testing.T) {
 		},
 	}
 
-	serverClosed := false
+	serverClosed := make(chan struct{})
 	listen, err := ListenXH(context.Background(), net.LocalHostIP, listenPort, streamSettings, func(conn stat.Connection) {
 		go func() {
 			defer conn.Close()
@@ -264,7 +264,7 @@ func Test_ListenXHAndDial_QUIC(t *testing.T) {
 				common.Must2(conn.Write(b.Bytes()))
 			}
 
-			serverClosed = true
+			close(serverClosed)
 		}()
 	})
 	common.Must(err)
@@ -297,9 +297,10 @@ func Test_ListenXHAndDial_QUIC(t *testing.T) {
 	}
 
 	conn.Close()
-	time.Sleep(100 * time.Millisecond)
-	if !serverClosed {
-		t.Error("server did not get closed")
+	select {
+	case <-serverClosed:
+	case <-time.After(time.Second):
+		t.Fatal("server did not get closed")
 	}
 
 	end := time.Now()
