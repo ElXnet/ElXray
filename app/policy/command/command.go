@@ -76,6 +76,24 @@ func (s *service) GetSubscription(ctx context.Context, r *GetSubscriptionRequest
 		return nil, rpcError(err)
 	}
 	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		if challenge := md.Get("elx-lease-accept-challenge"); len(challenge) != 0 {
+			if len(challenge) != 1 || len(challenge[0]) != 32 {
+				return nil, status.Error(codes.InvalidArgument, "invalid lease acceptance challenge")
+			}
+			signer, ok := s.manager.(interface {
+				SignedLeaseAcceptance(string, string) ([]byte, error)
+			})
+			if !ok {
+				return nil, status.Error(codes.FailedPrecondition, "signed lease acceptance unavailable")
+			}
+			proof, err := signer.SignedLeaseAcceptance(p.ID, challenge[0])
+			if err != nil {
+				return nil, status.Error(codes.FailedPrecondition, "live core lease not accepted")
+			}
+			if err := grpc.SetHeader(ctx, metadata.Pairs("elx-lease-accept-bin", string(proof))); err != nil {
+				return nil, err
+			}
+		}
 		if challenge := md.Get("elx-usage-challenge"); len(challenge) != 0 {
 			if len(challenge) != 1 || len(challenge[0]) != 32 {
 				return nil, status.Error(codes.InvalidArgument, "invalid usage challenge")
