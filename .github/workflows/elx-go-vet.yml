@@ -17,6 +17,10 @@ on:
       - '.github/workflows/elx-go-vet.yml'
   workflow_dispatch:
 
+concurrency:
+  group: elxray-full-vet-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
