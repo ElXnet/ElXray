@@ -33,18 +33,18 @@ jobs:
     steps:
       - name: Verify GitHub App credentials
         env:
-          CLIENT_ID: ${{ vars.ELX_SYNC_APP_CLIENT_ID }}
+          CLIENT_ID: ${{ vars.ELX_SYNC_APP_ID }}
           PRIVATE_KEY: ${{ secrets.ELX_SYNC_APP_PRIVATE_KEY }}
         run: |
           if [ -z "$CLIENT_ID" ] || [ -z "$PRIVATE_KEY" ]; then
-            echo '::error::Configure ELX_SYNC_APP_CLIENT_ID (variable) and ELX_SYNC_APP_PRIVATE_KEY (secret) for this repository in organization Actions settings.'
+            echo '::error::Configure ELX_SYNC_APP_ID (variable) and ELX_SYNC_APP_PRIVATE_KEY (secret) for this repository in organization Actions settings.'
             exit 1
           fi
       - name: Create scoped GitHub App token
         id: app-token
         uses: actions/create-github-app-token@v3
         with:
-          client-id: ${{ vars.ELX_SYNC_APP_CLIENT_ID }}
+          app-id: ${{ vars.ELX_SYNC_APP_ID }}
           private-key: ${{ secrets.ELX_SYNC_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ElXray
