@@ -17,7 +17,7 @@ import (
 	feature "github.com/xtls/xray-core/features/policy"
 )
 
-func TestSignedRateBarrierRequiresDurablePolicyAndDrain(t *testing.T) {
+func TestSignedRateBarrierRequiresDurablePolicyAndQuietTransfers(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	pub, priv, err := ed25519.GenerateKey(nil)
 	if err != nil {
@@ -58,11 +58,18 @@ func TestSignedRateBarrierRequiresDurablePolicyAndDrain(t *testing.T) {
 		t.Fatal("core signed barrier for unapplied rate")
 	}
 	limit := m.ForEmail("member")
-	stopped := make(chan struct{})
-	untrack, err := limit.TrackConnection(func() { close(stopped) })
+	stopped := make(chan struct{}, 1)
+	untrack, err := limit.TrackConnection(func() { stopped <- struct{}{} })
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer untrack()
+	// Simulate a chunk admitted by the old limiter, still being forwarded.
+	release, err := limit.Uplink.BeginRateTransfer(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	type result struct {
@@ -73,15 +80,13 @@ func TestSignedRateBarrierRequiresDurablePolicyAndDrain(t *testing.T) {
 	go func() { sig, err := m.ProveRateBarrier(ctx, req); completed <- result{sig, err} }()
 	select {
 	case <-stopped:
-	case <-time.After(time.Second):
-		t.Fatal("old flows not stopped")
-	}
-	select {
+		t.Fatal("ordinary rate reduction unexpectedly closed the VPN session")
 	case res := <-completed:
-		t.Fatalf("signed before old flow exit: %v", res.err)
-	default:
+		t.Fatalf("signed before old-rate payload finished: %v", res.err)
+	case <-time.After(40 * time.Millisecond):
 	}
-	// An extended drain must not serialize unrelated policy/lease operations.
+	// Waiting for a payload transfer must not serialize unrelated policy and
+	// lease operations; the manager lock is taken only for the final proof.
 	policyRead := make(chan error, 1)
 	go func() {
 		_, err := m.GetSubscription("a")
@@ -93,9 +98,9 @@ func TestSignedRateBarrierRequiresDurablePolicyAndDrain(t *testing.T) {
 			t.Fatal(err)
 		}
 	case <-time.After(200 * time.Millisecond):
-		t.Fatal("rate barrier held global policy lock while waiting for socket exit")
+		t.Fatal("rate barrier held global policy lock while waiting for payload")
 	}
-	untrack()
+	release()
 	select {
 	case res := <-completed:
 		if res.err != nil {
@@ -108,7 +113,12 @@ func TestSignedRateBarrierRequiresDurablePolicyAndDrain(t *testing.T) {
 			t.Fatal("signed rate barrier transcript mismatches ledger")
 		}
 	case <-time.After(time.Second):
-		t.Fatal("barrier did not complete after all connections exited")
+		t.Fatal("barrier did not complete after old payload exited")
+	}
+	select {
+	case <-stopped:
+		t.Fatal("barrier closed the still-active VPN session")
+	default:
 	}
 	if next, err := limit.TrackConnection(func() {}); err != nil {
 		t.Fatal("lower live rate policy remained blocked", err)

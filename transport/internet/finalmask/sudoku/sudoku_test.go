@@ -346,12 +346,29 @@ func runVLESSRealityCase(t *testing.T, bin string, mode trafficMode, payloadSize
 	return analyzeTCPRelay(t, "vless-reality", mode, relay.Snapshots())
 }
 
+// pickHysteriaUDPPorts asks the OS for two independently bindable UDP
+// sockets. TCP test-port allocators can pick UDP-excluded ranges on Windows.
+func pickHysteriaUDPPorts(t *testing.T) (xnet.Port, xnet.Port) {
+	t.Helper()
+	server, err := stdnet.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	relay, err := stdnet.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer relay.Close()
+	return xnet.Port(server.LocalAddr().(*stdnet.UDPAddr).Port),
+		xnet.Port(relay.LocalAddr().(*stdnet.UDPAddr).Port)
+}
+
 func runHysteria2Case(t *testing.T, bin string, mode trafficMode, payloadSize int) caseResult {
 	backend := startXOREchoServer(t)
 	defer backend.Close()
 
-	serverPort := testingtcp.PickPort()
-	relayPort := testingtcp.PickPort()
+	serverPort, relayPort := pickHysteriaUDPPorts(t)
 	clientPort := testingtcp.PickPort()
 
 	relay := startUDPRelay(t, int(relayPort), int(serverPort))
