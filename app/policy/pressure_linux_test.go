@@ -28,9 +28,12 @@ func TestSignedPressureBindingAndPolicyRevision(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("ELXRAY_POLICY_STATE", path)
-	m, err := New(context.Background(), &Config{RequireSubscription: true,
+	m, err := New(context.Background(), &Config{
+		RequireSubscription: true,
 		Subscriptions: map[string]*SubscriptionPolicy{
-			"account": {Emails: []string{"member"}, UplinkBps: 1000, DownlinkBps: 2000, Revision: 1},
+			"account": {
+				Emails: []string{"member"}, UplinkBps: 1000, DownlinkBps: 2000, Revision: 1,
+			},
 		},
 	})
 	if err != nil {
@@ -108,9 +111,13 @@ func TestSignedPressureBindingAndPolicyRevision(t *testing.T) {
 
 func TestSignedPressureRequiresDurableSigningKey(t *testing.T) {
 	t.Setenv("ELXRAY_POLICY_STATE", "")
-	m, err := New(context.Background(), &Config{Subscriptions: map[string]*SubscriptionPolicy{
-		"account": {Emails: []string{"member"}, UplinkBps: 100, DownlinkBps: 100},
-	}})
+	m, err := New(context.Background(), &Config{
+		Subscriptions: map[string]*SubscriptionPolicy{
+			"account": {
+				Emails: []string{"member"}, UplinkBps: 100, DownlinkBps: 100,
+			},
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
