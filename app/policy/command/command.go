@@ -112,6 +112,24 @@ func (s *service) GetSubscription(ctx context.Context, r *GetSubscriptionRequest
 				return nil, err
 			}
 		}
+		if challenge := md.Get("elx-pressure-challenge"); len(challenge) != 0 {
+			if len(challenge) != 1 || len(challenge[0]) != 32 {
+				return nil, status.Error(codes.InvalidArgument, "invalid pressure challenge")
+			}
+			signer, ok := s.manager.(interface {
+				SignedPressure(string, string) ([]byte, error)
+			})
+			if !ok {
+				return nil, status.Error(codes.FailedPrecondition, "signed pressure unavailable")
+			}
+			sample, err := signer.SignedPressure(p.ID, challenge[0])
+			if err != nil {
+				return nil, status.Error(codes.FailedPrecondition, "signed pressure unavailable")
+			}
+			if err := grpc.SetHeader(ctx, metadata.Pairs("elx-pressure-bin", string(sample))); err != nil {
+				return nil, err
+			}
+		}
 		if challenge := md.Get("elx-policy-challenge"); len(challenge) != 0 {
 			if len(challenge) != 1 || len(challenge[0]) < 1 || len(challenge[0]) > 128 {
 				return nil, status.Error(codes.InvalidArgument, "invalid policy challenge")

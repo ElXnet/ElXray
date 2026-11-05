@@ -1,6 +1,7 @@
 package scenarios
 
 import (
+	"math/rand/v2"
 	stdnet "net"
 	"testing"
 	"time"
@@ -27,17 +28,18 @@ import (
 // port can land port+1 inside a Windows excluded UDP range on hosted runners.
 func pickUDPBridgePort(t *testing.T) net.Port {
 	t.Helper()
-	for attempt := 0; attempt < 50; attempt++ {
-		tcpListener, err := stdnet.ListenTCP("tcp4", &stdnet.TCPAddr{IP: stdnet.IPv4(127, 0, 0, 1)})
+	// Windows ephemeral TCP ports often fall inside excluded UDP ranges.
+	// Probe a random non-ephemeral pair and hold both sockets open until
+	// their availability has been verified; never skip an untested pair.
+	for attempt := 0; attempt < 100; attempt++ {
+		port := 16000 + rand.IntN(28000)
+		tcpListener, err := stdnet.ListenTCP("tcp4",
+			&stdnet.TCPAddr{IP: stdnet.IPv4(127, 0, 0, 1), Port: port})
 		if err != nil {
-			t.Fatal(err)
-		}
-		port := tcpListener.Addr().(*stdnet.TCPAddr).Port
-		if port >= 65535 {
-			tcpListener.Close()
 			continue
 		}
-		udpListener, err := stdnet.ListenUDP("udp4", &stdnet.UDPAddr{IP: stdnet.IPv4(127, 0, 0, 1), Port: port + 1})
+		udpListener, err := stdnet.ListenUDP("udp4",
+			&stdnet.UDPAddr{IP: stdnet.IPv4(127, 0, 0, 1), Port: port + 1})
 		if err != nil {
 			tcpListener.Close()
 			continue
