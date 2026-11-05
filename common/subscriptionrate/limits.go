@@ -199,7 +199,7 @@ func (l *Limits) SweepLease(now time.Time) bool {
 // particular an ordinary policy ACK cannot substitute for this drain.
 func (l *Limits) DrainForRateBarrier(ctx context.Context) error {
 	l.mu.Lock()
-	if l.barrierActive {
+	if l.barrierActive || l.rateQuiescing {
 		l.mu.Unlock()
 		return errors.New("subscription rate barrier already in progress")
 	}
