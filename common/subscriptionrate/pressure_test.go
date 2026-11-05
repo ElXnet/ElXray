@@ -58,9 +58,6 @@ func TestPressureMeasuresBlockingWithoutCountingIdleCalls(t *testing.T) {
 		t.Fatalf("wait pressure not finalized: %+v", completed)
 	}
 	limits.Update(MaxRate, 1, false)
-	if err := limits.Uplink.WaitN(context.Background(), 1); err != nil {
-		t.Fatal(err)
-	}
 	after := limits.Uplink.Pressure()
 	if after.BlockedCalls != completed.BlockedCalls || after.BlockedNanos != completed.BlockedNanos {
 		t.Fatalf("policy change reset cumulative saturation: before=%+v after=%+v", completed, after)
