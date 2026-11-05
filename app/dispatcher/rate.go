@@ -60,16 +60,29 @@ func (w *RateWriter) WriteMultiBuffer(mb buf.MultiBuffer) error {
 		var chunk buf.MultiBuffer
 		mb, chunk = takeRateChunk(mb)
 		size := chunk.Len()
-		if err := waitRate(w.ctx, w.limiter, size); err != nil {
+		release, err := w.limiter.BeginRateTransfer(w.ctx)
+		if err != nil {
 			buf.ReleaseMulti(chunk)
 			buf.ReleaseMulti(mb)
 			return err
 		}
-		if err := w.writer.WriteMultiBuffer(chunk); err != nil {
+		if err := waitRate(w.ctx, w.limiter, size); err != nil {
+			release()
+			buf.ReleaseMulti(chunk)
 			buf.ReleaseMulti(mb)
 			return err
 		}
-		w.limiter.RecordPayload(size)
+		err = w.writer.WriteMultiBuffer(chunk)
+		if err == nil {
+			w.limiter.RecordPayload(size)
+		}
+		// The rate barrier cannot sign while a pre-reduction payload
+		// reservation is still entering the dispatcher sink.
+		release()
+		if err != nil {
+			buf.ReleaseMulti(mb)
+			return err
+		}
 	}
 	return nil
 }
@@ -121,12 +134,21 @@ func (r *rateReader) ReadMultiBuffer() (buf.MultiBuffer, error) {
 		err, r.pendingErr = r.pendingErr, nil
 	}
 	r.mu.Unlock()
+	release, acquireErr := r.limiter.BeginRateTransfer(r.ctx)
+	if acquireErr != nil {
+		buf.ReleaseMulti(chunk)
+		r.Interrupt()
+		return nil, acquireErr
+	}
 	if limitErr := waitRate(r.ctx, r.limiter, chunk.Len()); limitErr != nil {
+		release()
 		buf.ReleaseMulti(chunk)
 		r.Interrupt()
 		return nil, limitErr
 	}
 	r.limiter.RecordPayload(chunk.Len())
+	// Returning a buffer crosses the dispatcher's rate-accounting boundary.
+	release()
 	return chunk, err
 }
 
