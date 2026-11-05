@@ -93,11 +93,14 @@ def run(binary, size):
             api("subscription-set", *update)  # lost-response retry
             api("subscription-set", "--expected-revision=1", "--revision=2", "--uplink-bps=1", "--downlink-bps=1", "--disabled=false", success=False)
             check_rates(bench(connections=1), 5, 2.5)
-            api("subscription-set", "--expected-revision=2", "--revision=3", "--uplink-bps=0", "--downlink-bps=0", "--disabled=true")
+            api("subscription-set", "--expected-revision=2", "--revision=3", "--uplink-bps=312500", "--downlink-bps=625000", "--disabled=true")
             bench(direction="download", connections=1, success=False)
-            api("subscription-set", "--expected-revision=3", "--revision=4", "--uplink-bps=0", "--downlink-bps=0", "--disabled=false")
+            # An ordinary subscription API caller cannot restore unrestricted rates.
+            # Rejecting this attempt must not advance the revision.
+            api("subscription-set", "--expected-revision=3", "--revision=4", "--uplink-bps=0", "--downlink-bps=0", "--disabled=false", success=False)
+            api("subscription-set", "--expected-revision=3", "--revision=4", "--uplink-bps=625000", "--downlink-bps=1250000", "--disabled=false")
             bench(direction="download", connections=1)
-            print(json.dumps({"passed": True, "rates": reports, "runtime_retry_stale_disable_unlimited": True}, indent=2))
+            print(json.dumps({"passed": True, "rates": reports, "runtime_retry_stale_disable_reenable": True, "unlimited_requires_admin": True}, indent=2))
         except BaseException:
             for log in logs:
                 log.flush()

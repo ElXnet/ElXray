@@ -93,3 +93,37 @@ func TestBudgetAggregateIndependentDirectionsAndCancellation(t *testing.T) {
 		t.Fatal("oversized wait accepted")
 	}
 }
+
+func TestDisableStopsOnlyRegisteredConnections(t *testing.T) {
+	limits := New(10, 10)
+	var stopped, removed, next int
+	detach, err := limits.TrackConnection(func() { removed++ })
+	if err != nil {
+		t.Fatal(err)
+	}
+	detach()
+	_, err = limits.TrackConnection(func() { stopped++ })
+	if err != nil {
+		t.Fatal(err)
+	}
+	limits.Update(8, 8, false)
+	if stopped != 0 {
+		t.Fatal("rate update closed an active connection")
+	}
+	limits.Update(8, 8, true)
+	if stopped != 1 || removed != 0 {
+		t.Fatalf("unexpected stops: active=%d detached=%d", stopped, removed)
+	}
+	if _, err := limits.TrackConnection(func() {}); !errors.Is(err, ErrDisabled) {
+		t.Fatalf("disabled subscription admitted connection: %v", err)
+	}
+	limits.Update(8, 8, false)
+	_, err = limits.TrackConnection(func() { next++ })
+	if err != nil {
+		t.Fatal(err)
+	}
+	limits.Update(8, 8, true)
+	if stopped != 1 || next != 1 {
+		t.Fatalf("unexpected stops after re-enable: old=%d new=%d", stopped, next)
+	}
+}

@@ -1,6 +1,8 @@
 package policy
 
 import (
+	"errors"
+	"maps"
 	"math"
 	"slices"
 	"strings"
@@ -29,6 +31,9 @@ func (m *Instance) UpdateSubscription(u subscriptionrate.Update) (subscriptionra
 	if !ok {
 		return subscriptionrate.Policy{}, subscriptionrate.ErrNotFound
 	}
+	if m.store != nil && m.store.failed {
+		return subscriptionrate.Policy{}, errors.New("policy store unavailable")
+	}
 	same := p.UplinkBps == u.UplinkBps && p.DownlinkBps == u.DownlinkBps && p.Disabled == u.Disabled
 	// An acknowledged update can be retried after a lost response, without credit reset.
 	if !(u.Revision == p.Revision && same) {
@@ -36,8 +41,16 @@ func (m *Instance) UpdateSubscription(u subscriptionrate.Update) (subscriptionra
 			return subscriptionrate.Policy{}, subscriptionrate.ErrConflict
 		}
 		limits := m.subscriptions[strings.ToLower(p.Emails[0])]
-		limits.Update(u.UplinkBps, u.DownlinkBps, u.Disabled)
 		p.UplinkBps, p.DownlinkBps, p.Disabled, p.Revision = u.UplinkBps, u.DownlinkBps, u.Disabled, u.Revision
+		if m.store != nil {
+			next := maps.Clone(m.subscriptionPolicies)
+			next[u.ID] = p
+			if err := m.store.write(next, m.profileGate.Denied()); err != nil {
+				m.store.failed = true
+				return subscriptionrate.Policy{}, err
+			}
+		}
+		limits.Update(u.UplinkBps, u.DownlinkBps, u.Disabled)
 		m.subscriptionPolicies[u.ID] = p
 	}
 	p.Emails = slices.Clone(p.Emails)

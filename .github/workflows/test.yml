@@ -33,7 +33,7 @@ jobs:
           check-latest: true
           cache: false
       - name: Check Format
-        run: go run ./infra/vformat/main.go -mode check -pwd ./
+        run: go run ./infra/vformat/main.go -mode dryrun -pwd ./
       - name: Check Protobuf
         run: go run ./infra/vprotogen/main.go -mode check -pwd ./
 

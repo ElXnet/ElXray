@@ -63,6 +63,22 @@ func TestSubscriptionRPC(t *testing.T) {
 			t.Fatal(p, err)
 		}
 	}
+	for _, rates := range [][2]uint64{{0, 456}, {123, 0}, {0, 0}} {
+		for _, disabled := range []bool{false, true} {
+			_, err := client.SetSubscription(ctx, &SetSubscriptionRequest{
+				Id: "a", ExpectedRevision: 2, Revision: 3,
+				UplinkBps: proto.Uint64(rates[0]), DownlinkBps: proto.Uint64(rates[1]),
+				Disabled: proto.Bool(disabled),
+			})
+			if status.Code(err) != codes.PermissionDenied {
+				t.Fatalf("zero-rate update returned %v", err)
+			}
+		}
+	}
+	p, err = client.GetSubscription(ctx, &GetSubscriptionRequest{Id: "a"})
+	if err != nil || p.GetRevision() != 2 || p.GetUplinkBps() != 123 || p.GetDownlinkBps() != 456 {
+		t.Fatalf("rejected update changed the policy: %v, %v", p, err)
+	}
 	*update.UplinkBps++
 	if _, err = client.SetSubscription(ctx, update); status.Code(err) != codes.Aborted {
 		t.Fatal("stale update", err)

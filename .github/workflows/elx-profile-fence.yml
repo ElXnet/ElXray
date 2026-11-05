@@ -1,0 +1,43 @@
+name: ElXray profile fence regression
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    paths:
+      - "app/policy/**"
+      - "common/sessionfence/**"
+      - "common/subscriptionrate/**"
+      - "features/policy/**"
+      - "proxy/vless/inbound/**"
+      - ".github/workflows/elx-profile-fence.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  profile-fence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout ElXray branch
+        uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Check Go formatting
+        run: |
+          changed="$(gofmt -l common/sessionfence/registry.go common/sessionfence/registry_test.go app/policy/profile_fence.go app/policy/profile_fence_test.go app/policy/command/profile_fence.go app/policy/command/profile_fence_test.go app/policy/lease.go app/policy/lease_test.go app/policy/command/lease.go common/subscriptionrate/limits.go common/subscriptionrate/lease_test.go common/subscriptionrate/barrier_test.go app/policy/rate_barrier.go app/policy/rate_barrier_test.go app/policy/command/rate_barrier.go)"
+          if [ -n "$changed" ]; then
+            echo "Files requiring gofmt:"
+            echo "$changed"
+            exit 1
+          fi
+      - name: Race tests for denial, durable restore, core signature and local RPC
+        run: go test -race ./common/sessionfence ./common/subscriptionrate ./app/policy ./app/policy/command ./proxy/vless/inbound -count=1 -timeout 180s
+      - name: Vet changed packages
+        run: go vet ./common/sessionfence ./common/subscriptionrate ./app/policy ./app/policy/command ./proxy/vless/inbound

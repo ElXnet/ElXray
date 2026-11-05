@@ -2,6 +2,7 @@ package command
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"net"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/xtls/xray-core/features/policy"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
@@ -20,7 +22,12 @@ type service struct {
 	manager policy.SubscriptionController
 }
 
-func (s *service) Register(server *grpc.Server) { RegisterSubscriptionServiceServer(server, s) }
+func (s *service) Register(server *grpc.Server) {
+	RegisterSubscriptionServiceServer(server, s)
+	registerProfileFence(server, s.manager)
+	registerControlLease(server, s.manager)
+	registerRateBarrier(server, s.manager)
+}
 
 // The standard Commander transport has no authentication. Refuse remote peers
 // even if someone accidentally exposes its listener. Remote agents use SSH/WG
@@ -68,6 +75,44 @@ func (s *service) GetSubscription(ctx context.Context, r *GetSubscriptionRequest
 	if err != nil {
 		return nil, rpcError(err)
 	}
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		if challenge := md.Get("elx-usage-challenge"); len(challenge) != 0 {
+			if len(challenge) != 1 || len(challenge[0]) != 32 {
+				return nil, status.Error(codes.InvalidArgument, "invalid usage challenge")
+			}
+			signer, ok := s.manager.(interface {
+				SignedUsage(string, string) ([]byte, error)
+			})
+			if !ok {
+				return nil, status.Error(codes.FailedPrecondition, "usage unavailable")
+			}
+			sample, err := signer.SignedUsage(p.ID, challenge[0])
+			if err != nil {
+				return nil, status.Error(codes.FailedPrecondition, "usage unavailable")
+			}
+			if err := grpc.SetHeader(ctx, metadata.Pairs("elx-usage-bin", string(sample))); err != nil {
+				return nil, err
+			}
+		}
+		if challenge := md.Get("elx-policy-challenge"); len(challenge) != 0 {
+			if len(challenge) != 1 || len(challenge[0]) < 1 || len(challenge[0]) > 128 {
+				return nil, status.Error(codes.InvalidArgument, "invalid policy challenge")
+			}
+			signer, ok := s.manager.(interface {
+				DurablePolicyProof(subscriptionrate.Policy, string) ([]byte, error)
+			})
+			if !ok {
+				return nil, status.Error(codes.FailedPrecondition, "durable policy unavailable")
+			}
+			proof, err := signer.DurablePolicyProof(p, challenge[0])
+			if err != nil {
+				return nil, status.Error(codes.FailedPrecondition, "durable policy unavailable")
+			}
+			if err := grpc.SetHeader(ctx, metadata.Pairs("elx-policy-proof", hex.EncodeToString(proof))); err != nil {
+				return nil, err
+			}
+		}
+	}
 	return response(p), nil
 }
 
@@ -77,6 +122,11 @@ func (s *service) SetSubscription(ctx context.Context, r *SetSubscriptionRequest
 	}
 	if r == nil || r.UplinkBps == nil || r.DownlinkBps == nil || r.Disabled == nil {
 		return nil, status.Error(codes.InvalidArgument, "both rates and disabled must be explicit")
+	}
+	// Commander authenticates locality only. Unlimited rates must be set
+	// through the administrator-owned startup configuration.
+	if r.GetUplinkBps() == 0 || r.GetDownlinkBps() == 0 {
+		return nil, status.Error(codes.PermissionDenied, "unlimited rates require administrator configuration")
 	}
 	p, err := s.manager.UpdateSubscription(subscriptionrate.Update{ID: r.Id, ExpectedRevision: r.ExpectedRevision, Revision: r.Revision, UplinkBps: r.GetUplinkBps(), DownlinkBps: r.GetDownlinkBps(), Disabled: r.GetDisabled()})
 	if err != nil {

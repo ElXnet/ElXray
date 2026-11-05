@@ -6,6 +6,7 @@ import (
 	"errors"
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -21,20 +22,26 @@ var ErrDisabled = errors.New("subscription is disabled")
 // so existing connections can be limited later without allowing raw-copy bypass.
 // Rates and disabled state change together under mu. Updates never replace buckets.
 type Limits struct {
-	mu       sync.Mutex
-	changed  chan struct{}
-	disabled bool
-	Uplink   *Budget
-	Downlink *Budget
+	mu            sync.Mutex
+	changed       chan struct{}
+	disabled      bool
+	leaseRequired bool
+	leaseDeadline time.Time
+	leaseTripped  bool
+	barrierActive bool
+	connections   map[*connectionStop]struct{}
+	Uplink        *Budget
+	Downlink      *Budget
 }
 
 // Budget is a byte token bucket. Waiters do not reserve future credit: a policy
 // change can wake them immediately without inheriting old-rate reservations.
 type Budget struct {
-	owner  *Limits
-	rate   uint64
-	tokens float64
-	last   time.Time
+	owner   *Limits
+	rate    uint64
+	tokens  float64
+	payload atomic.Uint64
+	last    time.Time
 }
 
 func New(uplink, downlink uint64) *Limits {
@@ -52,17 +59,167 @@ func (b *Budget) refill(now time.Time) {
 	b.last = now
 }
 
+type connectionStop struct {
+	close   func()
+	stopped bool
+}
+
+// stopConnectionsLocked never removes active flow registrations. Only the
+// inbound's deferred untrack proves that the flow actually exited. Otherwise
+// a rate barrier could sign early while TCP/Mux streams are still closing.
+func (l *Limits) stopConnectionsLocked() []func() {
+	stops := make([]func(), 0, len(l.connections))
+	for entry := range l.connections {
+		if !entry.stopped {
+			entry.stopped = true
+			stops = append(stops, entry.close)
+		}
+	}
+	return stops
+}
+
+// TrackConnection registers a live connection for disable notification.
+// close must only stop this connection and must not call the policy manager.
+// The returned function removes the registration on normal connection exit.
+func (l *Limits) TrackConnection(close func()) (func(), error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.disabled || l.barrierActive || l.leaseDue(time.Now()) {
+		return nil, ErrDisabled
+	}
+	entry := &connectionStop{close: close}
+	if l.connections == nil {
+		l.connections = make(map[*connectionStop]struct{})
+	}
+	l.connections[entry] = struct{}{}
+	return func() {
+		l.mu.Lock()
+		delete(l.connections, entry)
+		l.mu.Unlock()
+	}, nil
+}
+
+// RequireLease makes the budget fail closed until a verified Control
+// heartbeat is installed. It does not change subscribed rates or issue a
+// session-release receipt; occupied device slots remain accounted for.
+func (l *Limits) RequireLease() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.leaseRequired = true
+	l.leaseDeadline = time.Time{}
+	l.leaseTripped = true
+}
+
+// RenewLease is called ONLY by the core's Ed25519-verifying policy manager.
+// The deadline is a wall-clock upper bound: replaying a signed ticket cannot
+// extend its original lifetime. It may only increase, never roll back.
+func (l *Limits) RenewLease(deadline time.Time) {
+	l.mu.Lock()
+	now := time.Now()
+	if !l.leaseRequired || !deadline.After(now) || !deadline.After(l.leaseDeadline) {
+		l.mu.Unlock()
+		return
+	}
+	// An expired lease requires a fresh VPN handshake. Even if the watchdog
+	// has not yet fired, a late renewal must not resurrect old idle sockets.
+	var stopped []func()
+	if l.leaseDue(now) && !l.leaseTripped {
+		stopped = l.stopConnectionsLocked()
+	}
+	l.leaseDeadline = deadline
+	l.leaseTripped = false
+	close(l.changed)
+	l.changed = make(chan struct{})
+	l.mu.Unlock()
+	for _, stop := range stopped {
+		stop()
+	}
+}
+
+func (l *Limits) leaseDue(now time.Time) bool {
+	return l.leaseRequired && (l.leaseTripped || !now.Before(l.leaseDeadline))
+}
+
+// SweepLease aborts ALL tracked sockets after expiry, including idle
+// connections that would otherwise never reach WaitN. The caller repeats
+// this for active subscriptions; closing callbacks run outside l.mu.
+func (l *Limits) SweepLease(now time.Time) bool {
+	l.mu.Lock()
+	if !l.leaseDue(now) || l.leaseTripped {
+		l.mu.Unlock()
+		return false
+	}
+	l.leaseTripped = true
+	stopped := l.stopConnectionsLocked()
+	close(l.changed)
+	l.changed = make(chan struct{})
+	l.mu.Unlock()
+	for _, stop := range stopped {
+		stop()
+	}
+	return true
+}
+
+// DrainForRateBarrier temporarily denies new subscription flows, cancels
+// every previously admitted connection, and waits until all have exited.
+// The signed barrier MUST NOT be produced before this returns nil. In
+// particular an ordinary policy ACK cannot substitute for this drain.
+func (l *Limits) DrainForRateBarrier(ctx context.Context) error {
+	l.mu.Lock()
+	if l.barrierActive {
+		l.mu.Unlock()
+		return errors.New("subscription rate barrier already in progress")
+	}
+	l.barrierActive = true
+	close(l.changed)
+	l.changed = make(chan struct{})
+	stops := l.stopConnectionsLocked()
+	l.mu.Unlock()
+	for _, stop := range stops {
+		stop()
+	}
+	defer func() {
+		l.mu.Lock()
+		l.barrierActive = false
+		close(l.changed)
+		l.changed = make(chan struct{})
+		l.mu.Unlock()
+	}()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		l.mu.Lock()
+		remaining := len(l.connections)
+		l.mu.Unlock()
+		if remaining == 0 {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
 // Update atomically changes both rates and admission state, preserving credit.
 // Callers validate rates against MaxRate before applying an external policy.
 func (l *Limits) Update(uplink, downlink uint64, disabled bool) {
 	l.mu.Lock()
-	defer l.mu.Unlock()
 	now := time.Now()
 	l.Uplink.refill(now)
 	l.Downlink.refill(now)
 	l.Uplink.rate, l.Downlink.rate, l.disabled = uplink, downlink, disabled
 	close(l.changed)
 	l.changed = make(chan struct{})
+	var stopped []func()
+	if disabled {
+		stopped = l.stopConnectionsLocked()
+	}
+	l.mu.Unlock()
+	for _, stop := range stopped {
+		stop()
+	}
 }
 
 // AllowN is a non-blocking debit, also useful to exhaust initial test credit.
@@ -71,7 +228,7 @@ func (b *Budget) AllowN(now time.Time, n int) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	b.refill(now)
-	if n < 0 || n > Burst || l.disabled {
+	if n < 0 || n > Burst || l.disabled || l.barrierActive || l.leaseDue(now) {
 		return false
 	}
 	if b.rate != 0 && b.tokens < float64(n) {
@@ -94,7 +251,7 @@ func (b *Budget) WaitN(ctx context.Context, n int) error {
 		l.mu.Lock()
 		now := time.Now()
 		b.refill(now)
-		if l.disabled {
+		if l.disabled || l.barrierActive || l.leaseDue(now) {
 			l.mu.Unlock()
 			return ErrDisabled
 		}
@@ -117,3 +274,13 @@ func (b *Budget) WaitN(ctx context.Context, n int) error {
 		}
 	}
 }
+
+// RecordPayload counts bytes accepted at the dispatcher boundary. It does
+// not count limiter reservations or wire overhead.
+func (b *Budget) RecordPayload(n int32) {
+	if n > 0 {
+		b.payload.Add(uint64(n))
+	}
+}
+
+func (b *Budget) PayloadBytes() uint64 { return b.payload.Load() }

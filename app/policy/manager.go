@@ -2,11 +2,20 @@ package policy
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/base64"
+	"errors"
+	"os"
 	"slices"
 	"strings"
 	"sync"
+	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/xtls/xray-core/common"
+	"github.com/xtls/xray-core/common/sessionfence"
 	"github.com/xtls/xray-core/common/subscriptionrate"
 	"github.com/xtls/xray-core/features/policy"
 )
@@ -18,7 +27,15 @@ type Instance struct {
 	system               *SystemPolicy
 	subscriptions        map[string]*subscriptionrate.Limits
 	subscriptionMu       sync.Mutex
+	store                *policyStore
+	usageIncarnation     [16]byte
+	usageSequences       map[string]uint64
 	subscriptionPolicies map[string]subscriptionrate.Policy
+	profileGate          *sessionfence.Registry
+	leasePublicKey       ed25519.PublicKey
+	leaseNodeID          uuid.UUID
+	leaseSeq             map[string]int64
+	leaseCancel          context.CancelFunc
 }
 
 // New creates new Policy manager instance.
@@ -32,10 +49,38 @@ func New(ctx context.Context, config *Config) (*Instance, error) {
 		system:               config.System,
 		subscriptions:        subscriptions,
 		subscriptionPolicies: make(map[string]subscriptionrate.Policy),
+		usageSequences:       make(map[string]uint64),
+		profileGate:          sessionfence.New(),
 	}
 	if config.RequireSubscription {
 		m.unmanaged = subscriptionrate.New(0, 0)
 		m.unmanaged.Update(0, 0, true)
+	}
+	if os.Getenv("ELXRAY_REQUIRE_CONTROL_LEASE") == "1" {
+		if !config.RequireSubscription || len(m.subscriptions) == 0 {
+			return nil, errors.New("Control lease enforcement requires managed subscriptions")
+		}
+		if os.Getenv("ELXRAY_POLICY_STATE") == "" {
+			return nil, errors.New("Control lease enforcement requires durable policy state")
+		}
+		pub, err := base64.StdEncoding.DecodeString(os.Getenv("ELXRAY_CONTROL_LEASE_PUBLIC_KEY"))
+		if err != nil || len(pub) != ed25519.PublicKeySize {
+			return nil, errors.New("Control lease public key must be provisioned")
+		}
+		node, err := uuid.Parse(os.Getenv("ELXRAY_CONTROL_LEASE_NODE_UUID"))
+		if err != nil || node == uuid.Nil {
+			return nil, errors.New("Control lease requires a pinned node UUID")
+		}
+		m.leasePublicKey = ed25519.PublicKey(pub)
+		m.leaseNodeID = node
+		m.leaseSeq = make(map[string]int64)
+		seen := make(map[*subscriptionrate.Limits]bool)
+		for _, limit := range m.subscriptions {
+			if !seen[limit] {
+				limit.RequireLease()
+				seen[limit] = true
+			}
+		}
 	}
 	for id, p := range config.Subscriptions {
 		revision := p.Revision
@@ -43,6 +88,19 @@ func New(ctx context.Context, config *Config) (*Instance, error) {
 			revision = 1
 		}
 		m.subscriptionPolicies[id] = subscriptionrate.Policy{ID: id, Emails: slices.Clone(p.Emails), UplinkBps: p.UplinkBps, DownlinkBps: p.DownlinkBps, Revision: revision, Disabled: p.Disabled}
+	}
+	if path := os.Getenv("ELXRAY_POLICY_STATE"); path != "" {
+		if err := m.restorePolicies(path); err != nil {
+			return nil, err
+		}
+		if _, err := rand.Read(m.usageIncarnation[:]); err != nil {
+			return nil, err
+		}
+		m.usageIncarnation[6] = m.usageIncarnation[6]&0x0f | 0x40
+		m.usageIncarnation[8] = m.usageIncarnation[8]&0x3f | 0x80
+		for _, p := range m.subscriptionPolicies {
+			m.subscriptions[strings.ToLower(p.Emails[0])].Update(p.UplinkBps, p.DownlinkBps, p.Disabled)
+		}
 	}
 	if len(config.Level) > 0 {
 		for lv, p := range config.Level {
@@ -86,11 +144,50 @@ func (m *Instance) ForSystem() policy.System {
 
 // Start implements common.Runnable.Start().
 func (m *Instance) Start() error {
+	if len(m.leasePublicKey) == 0 {
+		return nil
+	}
+	m.subscriptionMu.Lock()
+	if m.leaseCancel != nil {
+		m.subscriptionMu.Unlock()
+		return nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	m.leaseCancel = cancel
+	m.subscriptionMu.Unlock()
+	go func() {
+		t := time.NewTicker(100 * time.Millisecond)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case now := <-t.C:
+				seen := make(map[*subscriptionrate.Limits]bool)
+				for _, limits := range m.subscriptions {
+					if !seen[limits] {
+						limits.SweepLease(now)
+						seen[limits] = true
+					}
+				}
+			}
+		}
+	}()
 	return nil
 }
 
 // Close implements common.Closable.Close().
 func (m *Instance) Close() error {
+	m.subscriptionMu.Lock()
+	defer m.subscriptionMu.Unlock()
+	if m.leaseCancel != nil {
+		m.leaseCancel()
+		m.leaseCancel = nil
+	}
+	if m.store != nil {
+		m.store.failed = true
+		return m.store.lock.Close()
+	}
 	return nil
 }
 
