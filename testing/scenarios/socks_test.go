@@ -25,7 +25,7 @@ import (
 
 // pickUDPBridgePort selects a usable TCP/UDP port pair. Choosing only a TCP
 // port can land port+1 inside a Windows excluded UDP range on hosted runners.
-func pickUDPBridgePort(t *testing.T) uint32 {
+func pickUDPBridgePort(t *testing.T) net.Port {
 	t.Helper()
 	for attempt := 0; attempt < 50; attempt++ {
 		tcpListener, err := stdnet.ListenTCP("tcp4", &stdnet.TCPAddr{IP: stdnet.IPv4(127, 0, 0, 1)})
@@ -44,7 +44,7 @@ func pickUDPBridgePort(t *testing.T) uint32 {
 		}
 		udpListener.Close()
 		tcpListener.Close()
-		return uint32(port)
+		return net.Port(port)
 	}
 	t.Fatal("No TCP/UDP port pair available for SOCKS bridge")
 	return 0
