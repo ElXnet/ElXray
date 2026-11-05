@@ -136,7 +136,10 @@ func (r *slowReader) Read(p []byte) (int, error) {
 // a request that keeps moving outlives the stall limit many times over, one
 // that stands still does not get much past it
 func TestServiceClientEndsOnlyStalledRequests(t *testing.T) {
-	const stall = 200 * time.Millisecond
+	// Keep a wide gap between real transport inactivity and scheduled
+	// progress on loaded macOS/Windows CI runners. 200ms previously
+	// treated a delayed, continuously streaming response as stalled.
+	const stall = 750 * time.Millisecond
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		io.Copy(io.Discard, r.Body)
 		switch r.URL.Path {
@@ -144,7 +147,7 @@ func TestServiceClientEndsOnlyStalledRequests(t *testing.T) {
 			for i := 0; i < 20; i++ {
 				w.Write([]byte("x"))
 				w.(http.Flusher).Flush()
-				time.Sleep(stall / 4)
+				time.Sleep(stall / 10)
 			}
 		case "/stuck":
 			w.Write([]byte("x"))
@@ -194,7 +197,7 @@ func TestServiceClientEndsOnlyStalledRequests(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		for b := make([]byte, 1); ; time.Sleep(stall / 4) {
+		for b := make([]byte, 1); ; time.Sleep(stall / 10) {
 			if _, err := body.Read(b); err != nil {
 				break
 			}
