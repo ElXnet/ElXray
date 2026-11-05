@@ -12,10 +12,10 @@ import (
 	feature "github.com/xtls/xray-core/features/policy"
 )
 
-// ProveRateBarrier is deliberately disruptive only to THIS subscription:
-// after the lower policy has been durably applied, it blocks new admissions,
-// actively stops existing flows, waits for untrack, and only then signs a
-// barrier that authorizes Control to lower its global committed rate ledger.
+// ProveRateBarrier signs a reduced rate only after the exact durable policy
+// has been applied and earlier dispatcher payload transfers have quiesced.
+// Positive-rate reductions briefly pause new chunks without closing sessions.
+// Full disables keep the stricter signed flow-drain protocol.
 func (m *Instance) ProveRateBarrier(ctx context.Context, request feature.RateBarrierRequest) ([]byte, error) {
 	if request.EntitlementID == uuid.Nil || request.NodeID == uuid.Nil ||
 		request.ResourceID == uuid.Nil || request.OperationID == uuid.Nil ||
@@ -46,22 +46,35 @@ func (m *Instance) ProveRateBarrier(ctx context.Context, request feature.RateBar
 	}
 	store := m.store
 	m.subscriptionMu.Unlock()
-	// Closing old flows may take up to the RPC deadline. Never hold the
-	// policy manager lock across it: other subscriptions must continue
-	// renewing their signed Control leases and processing policy updates.
-	if err := limits.DrainForRateBarrier(ctx); err != nil {
-		return nil, fmt.Errorf("active subscription flows have not drained: %w", err)
+	// Do not hold the policy manager lock while waiting for any old payload
+	// transfer to finish: unrelated subscriptions and signed leases must
+	// remain responsive. The callback revalidates the exact durable revision
+	// under the lock before signing, while new transfers are still paused.
+	sign := func() ([]byte, error) {
+		m.subscriptionMu.Lock()
+		defer m.subscriptionMu.Unlock()
+		current, ok := m.subscriptionPolicies[request.Subscription]
+		if !ok || m.store != store || m.store.failed || current.Revision != p.Revision ||
+			current.UplinkBps != p.UplinkBps || current.DownlinkBps != p.DownlinkBps ||
+			current.Disabled != p.Disabled {
+			return nil, errors.New("rate barrier policy changed before proof")
+		}
+		message := fmt.Appendf(nil, "elx-rate-barrier-v1\n%s\n%s\n%s\n%s\n%d\n%d\n%d\n%d",
+			request.EntitlementID, request.NodeID, request.ResourceID, request.OperationID,
+			request.Epoch, request.Revision, request.Up, request.Down)
+		return ed25519.Sign(m.store.key, message), nil
 	}
-	m.subscriptionMu.Lock()
-	defer m.subscriptionMu.Unlock()
-	current, ok := m.subscriptionPolicies[request.Subscription]
-	if !ok || m.store != store || m.store.failed || current.Revision != p.Revision ||
-		current.UplinkBps != p.UplinkBps || current.DownlinkBps != p.DownlinkBps ||
-		current.Disabled != p.Disabled {
-		return nil, errors.New("rate barrier policy changed while draining")
+	if request.Up == 0 {
+		// A disable/revoke is not an ordinary speed reduction. For release
+		// of its entitlement, require every old flow to stop completely.
+		if err := limits.DrainForRateBarrier(ctx); err != nil {
+			return nil, fmt.Errorf("disabled subscription flows have not drained: %w", err)
+		}
+		return sign()
 	}
-	message := fmt.Appendf(nil, "elx-rate-barrier-v1\n%s\n%s\n%s\n%s\n%d\n%d\n%d\n%d",
-		request.EntitlementID, request.NodeID, request.ResourceID, request.OperationID,
-		request.Epoch, request.Revision, request.Up, request.Down)
-	return ed25519.Sign(m.store.key, message), nil
+	proof, err := limits.WithQuietRateBarrier(ctx, sign)
+	if err != nil {
+		return nil, fmt.Errorf("in-place lower-rate barrier not established: %w", err)
+	}
+	return proof, nil
 }
