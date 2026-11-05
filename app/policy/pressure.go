@@ -17,13 +17,11 @@ const pressureEvidenceBytes = 120
 // Control-assigned subscription and this exact running ElXray incarnation.
 // A sample is diagnostic only: it does not grant any subscription bandwidth.
 //
-// Wire v1 (120 bytes + 64-byte Ed25519 signature):
-//   core UUID[16] | sequence u64 | sampled_at_unix_nanos u64 |
-//   policy_revision u64 | policy_upload_Bps u64 | policy_download_Bps u64 |
-//   for each upload,download: payload u64 | blocked_calls u64 |
-//     blocked_nanos u64 | active_waiters u64
+// The 120-byte v1 payload contains the core UUID, sequence, Unix-nanosecond
+// sample time, policy revision, both applied rates and four upload plus four
+// download limiter counters. The Ed25519 signature occupies the next 64 bytes.
 //
-// All integers are big endian. The signature covers the entire data,
+// // All integers are big endian. The signature covers the entire data,
 // canonical subscription ID, and a fresh Control-issued 16-byte challenge.
 func (m *Instance) SignedPressure(id, challenge string) ([]byte, error) {
 	nonce, err := hex.DecodeString(challenge)
