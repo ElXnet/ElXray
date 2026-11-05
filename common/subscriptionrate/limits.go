@@ -37,11 +37,39 @@ type Limits struct {
 // Budget is a byte token bucket. Waiters do not reserve future credit: a policy
 // change can wake them immediately without inheriting old-rate reservations.
 type Budget struct {
-	owner   *Limits
-	rate    uint64
-	tokens  float64
-	payload atomic.Uint64
-	last    time.Time
+	owner         *Limits
+	rate          uint64
+	tokens        float64
+	payload       atomic.Uint64
+	blockedCalls  atomic.Uint64
+	blockedNanos  atomic.Uint64
+	activeWaiters atomic.Int64
+	last          time.Time
+}
+
+// PressureSnapshot is local, cumulative limiter telemetry for one direction.
+// PayloadBytes counts dispatcher payload, BlockedCalls counts WaitN calls
+// forced to wait for tokens, BlockedNanos sums elapsed blocked time (including
+// canceled calls), and ActiveWaiters is the live number of such calls.
+// It is not cryptographically authenticated and is NOT a permission to raise
+// the grant. Control must only trust signed, core-identity-bound observations.
+type PressureSnapshot struct {
+	PayloadBytes  uint64
+	BlockedCalls  uint64
+	BlockedNanos  uint64
+	ActiveWaiters int64
+}
+
+// Pressure reports independent, monotonic counters and a live waiter gauge.
+// Fields use atomic loads but are not one transactional snapshot. For demand
+// estimation, compare consecutive samples from the SAME core incarnation.
+func (b *Budget) Pressure() PressureSnapshot {
+	return PressureSnapshot{
+		PayloadBytes:  b.payload.Load(),
+		BlockedCalls:  b.blockedCalls.Load(),
+		BlockedNanos:  b.blockedNanos.Load(),
+		ActiveWaiters: b.activeWaiters.Load(),
+	}
 }
 
 func New(uplink, downlink uint64) *Limits {
@@ -244,6 +272,7 @@ func (b *Budget) WaitN(ctx context.Context, n int) error {
 		return errors.New("rate wait exceeds burst")
 	}
 	l := b.owner
+	waited := false
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -263,6 +292,20 @@ func (b *Budget) WaitN(ctx context.Context, n int) error {
 		delay := time.Duration(math.Ceil((float64(n) - b.tokens) / float64(b.rate) * float64(time.Second)))
 		changed := l.changed
 		l.mu.Unlock()
+		// Track only a genuinely token-limited wait; a normal permitted
+		// payload debit and an unrelated lease/disable error are not demand.
+		// A policy update may wake this waiter many times, but it is counted
+		// once until this WaitN call returns.
+		if !waited {
+			waited = true
+			started := time.Now()
+			b.blockedCalls.Add(1)
+			b.activeWaiters.Add(1)
+			defer func() {
+				b.activeWaiters.Add(-1)
+				b.blockedNanos.Add(uint64(time.Since(started)))
+			}()
+		}
 		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
