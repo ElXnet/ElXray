@@ -56,20 +56,26 @@ func TestVLESSSessionSurvivesQuietRateBarrier(t *testing.T) {
 			serial.ToTypedMessage(&dispatcher.Config{}),
 			serial.ToTypedMessage(&proxyman.InboundConfig{}),
 			serial.ToTypedMessage(&proxyman.OutboundConfig{}),
-			serial.ToTypedMessage(&apppolicy.Config{RequireSubscription: true,
+			serial.ToTypedMessage(&apppolicy.Config{
+				RequireSubscription: true,
 				Subscriptions: map[string]*apppolicy.SubscriptionPolicy{
-					"account": {Emails: []string{"member"}, UplinkBps: 100000,
-						DownlinkBps: 100000, Revision: 1},
-				}}),
+					"account": {
+						Emails: []string{"member"}, UplinkBps: 100000,
+						DownlinkBps: 100000, Revision: 1,
+					},
+				},
+			}),
 		},
 		Inbound: []*core.InboundHandlerConfig{{
 			ReceiverSettings: serial.ToTypedMessage(&proxyman.ReceiverConfig{
-				Listen: net.NewIPOrDomain(net.LocalHostIP),
+				Listen:   net.NewIPOrDomain(net.LocalHostIP),
 				PortList: &net.PortList{Range: []*net.PortRange{net.SinglePortRange(port)}},
 			}),
 			ProxySettings: serial.ToTypedMessage(&inbound.Config{
-				Users: []*protocol.User{{Email: "member",
-					Account: serial.ToTypedMessage(&vless.Account{Id: id.String()})}},
+				Users: []*protocol.User{{
+					Email:   "member",
+					Account: serial.ToTypedMessage(&vless.Account{Id: id.String()}),
+				}},
 			}),
 		}},
 		Outbound: []*core.OutboundHandlerConfig{{
@@ -98,9 +104,11 @@ func TestVLESSSessionSurvivesQuietRateBarrier(t *testing.T) {
 	request := &protocol.RequestHeader{
 		Version: 0, Command: protocol.RequestCommandTCP,
 		Address: net.DestinationFromAddr(target.Addr()).Address,
-		Port: net.DestinationFromAddr(target.Addr()).Port,
-		User: &protocol.MemoryUser{Email: "ignored-client-email",
-			Account: &vless.MemoryAccount{ID: protocol.NewID(id)}},
+		Port:    net.DestinationFromAddr(target.Addr()).Port,
+		User: &protocol.MemoryUser{
+			Email:   "ignored-client-email",
+			Account: &vless.MemoryAccount{ID: protocol.NewID(id)},
+		},
 	}
 	if err := encoding.EncodeRequestHeader(conn, request, &encoding.Addons{}); err != nil {
 		t.Fatal(err)
