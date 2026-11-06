@@ -98,7 +98,9 @@ func (s *routingServer) TestRoute(ctx context.Context, request *TestRouteRequest
 		return nil, err
 	}
 	if request.PublishResult && s.routingStats != nil {
-		ctx, _ := context.WithTimeout(context.Background(), 4*time.Second)
+		// Publishing can outlive the RPC while subscribers receive the result.
+		ctx, cancel := context.WithCancel(context.Background())
+		time.AfterFunc(4*time.Second, cancel)
 		s.routingStats.Publish(ctx, route)
 	}
 	return AsProtobufMessage(request.FieldSelectors)(route), nil

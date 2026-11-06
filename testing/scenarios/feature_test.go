@@ -2,9 +2,12 @@ package scenarios
 
 import (
 	"context"
+	"crypto/tls"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"testing"
 	"time"
 
@@ -18,6 +21,7 @@ import (
 	clog "github.com/xtls/xray-core/common/log"
 	"github.com/xtls/xray-core/common/net"
 	"github.com/xtls/xray-core/common/protocol"
+	"github.com/xtls/xray-core/common/protocol/tls/cert"
 	"github.com/xtls/xray-core/common/serial"
 	"github.com/xtls/xray-core/common/uuid"
 	core "github.com/xtls/xray-core/core"
@@ -546,6 +550,19 @@ func TestUDPConnection(t *testing.T) {
 }
 
 func TestDomainSniffing(t *testing.T) {
+	certificate, _ := cert.MustGenerate(nil, cert.DNSNames("localhost"))
+	certificatePEM, keyPEM := certificate.ToPEM()
+	tlsCertificate, err := tls.X509KeyPair(certificatePEM, keyPEM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "local TLS sniffing fixture")
+	}))
+	fixture.TLS = &tls.Config{Certificates: []tls.Certificate{tlsCertificate}}
+	fixture.StartTLS()
+	defer fixture.Close()
+	fixturePort := fixture.Listener.Addr().(*net.TCPAddr).Port
 	sniffingPort := tcp.PickPort()
 	httpPort := tcp.PickPort()
 	serverConfig := &core.Config{
@@ -561,8 +578,9 @@ func TestDomainSniffing(t *testing.T) {
 					},
 				}),
 				ProxySettings: serial.ToTypedMessage(&dokodemo.Config{
-					RewriteAddress:  net.NewIPOrDomain(net.LocalHostIP),
-					RewritePort:     443,
+					// Only the sniffed localhost SNI can reach the fixture on 127.0.0.1.
+					RewriteAddress:  net.NewIPOrDomain(net.IPAddress([]byte{127, 0, 0, 2})),
+					RewritePort:     uint32(fixturePort),
 					AllowedNetworks: []net.Network{net.Network_TCP},
 				}),
 			},
@@ -620,22 +638,29 @@ func TestDomainSniffing(t *testing.T) {
 	defer CloseAllServers(servers)
 
 	{
-		transport := &http.Transport{
-			Proxy: func(req *http.Request) (*url.URL, error) {
-				return url.Parse("http://127.0.0.1:" + httpPort.String())
-			},
+		transport := fixture.Client().Transport.(*http.Transport).Clone()
+		transport.Proxy = func(req *http.Request) (*url.URL, error) {
+			return url.Parse("http://127.0.0.1:" + httpPort.String())
 		}
+		defer transport.CloseIdleConnections()
 
 		client := &http.Client{
 			Transport: transport,
+			Timeout:   10 * time.Second,
 		}
 
-		resp, err := client.Get("https://www.github.com/")
-		common.Must(err)
-		if resp.StatusCode != 200 {
-			t.Error("unexpected status code: ", resp.StatusCode)
+		resp, err := client.Get("https://localhost:" + strconv.Itoa(fixturePort) + "/")
+		if err != nil {
+			t.Fatal(err)
 		}
-		common.Must(resp.Write(io.Discard))
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.StatusCode != http.StatusOK || string(body) != "local TLS sniffing fixture" {
+			t.Fatalf("sniffed TLS response = %d %q", resp.StatusCode, body)
+		}
 	}
 }
 

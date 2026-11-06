@@ -3,6 +3,7 @@ package outbound_test
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -107,11 +108,11 @@ func TestTagsCache(t *testing.T) {
 	v.AddFeature(ohm)
 	ctx := context.WithValue(context.Background(), xrayKey, v)
 
-	stop_add_rm := false
+	var stop_add_rm atomic.Bool
 	wg_add_rm := sync.WaitGroup{}
 	addHandlers := func() {
 		defer wg_add_rm.Done()
-		for !stop_add_rm {
+		for !stop_add_rm.Load() {
 			time.Sleep(delay)
 			idx := counter.Add(1)
 			tag := fmt.Sprintf("%s%d", tags_prefix, idx)
@@ -134,7 +135,7 @@ func TestTagsCache(t *testing.T) {
 
 	rmHandlers := func() {
 		defer wg_add_rm.Done()
-		for !stop_add_rm {
+		for !stop_add_rm.Load() {
 			time.Sleep(delay)
 			tags.Range(func(key interface{}, value interface{}) bool {
 				if _, ok := tags.LoadAndDelete(key); ok {
@@ -149,10 +150,10 @@ func TestTagsCache(t *testing.T) {
 
 	selectors := []string{tags_prefix}
 	wg_get := sync.WaitGroup{}
-	stop_get := false
+	var stop_get atomic.Bool
 	getTags := func() {
 		defer wg_get.Done()
-		for !stop_get {
+		for !stop_get.Load() {
 			time.Sleep(delay)
 			_ = ohm.Select(selectors)
 			// t.Logf("get tags: %v", tag)
@@ -168,8 +169,57 @@ func TestTagsCache(t *testing.T) {
 	}
 
 	time.Sleep(test_duration)
-	stop_add_rm = true
+	stop_add_rm.Store(true)
 	wg_add_rm.Wait()
-	stop_get = true
+	stop_get.Store(true)
 	wg_get.Wait()
+}
+
+func TestTagsCacheSeparatesCommaPrefixesAndInvalidates(t *testing.T) {
+	manager, err := New(context.Background(), &proxyman.OutboundConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance, err := core.New(&core.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer instance.Close()
+	if err := instance.AddFeature(manager); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.WithValue(context.Background(), xrayKey, instance)
+	add := func(tag string) {
+		t.Helper()
+		handler, err := NewHandler(ctx, &core.OutboundHandlerConfig{
+			Tag: tag,
+			ProxySettings: serial.ToTypedMessage(&freedom.Config{
+				FinalRules: []*freedom.FinalRuleConfig{{Action: freedom.RuleAction_Allow}},
+			}),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := manager.AddHandler(ctx, handler); err != nil {
+			t.Fatal(err)
+		}
+	}
+	check := func(selectors, want []string) {
+		t.Helper()
+		got := manager.Select(selectors)
+		if !slices.Equal(got, want) {
+			t.Fatalf("Select(%q) = %q; want %q", selectors, got, want)
+		}
+	}
+	add("node,a-one")
+	add("node-one")
+	add("a-one")
+	check([]string{"node,a"}, []string{"node,a-one"})
+	check([]string{"node", "a"}, []string{"a-one", "node,a-one", "node-one"})
+	add("node-two")
+	check([]string{"node", "a"}, []string{"a-one", "node,a-one", "node-one", "node-two"})
+	if err := manager.RemoveHandler(ctx, "node-one"); err != nil {
+		t.Fatal(err)
+	}
+	check([]string{"node", "a"}, []string{"a-one", "node,a-one", "node-two"})
 }

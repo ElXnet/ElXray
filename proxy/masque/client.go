@@ -93,11 +93,7 @@ func NewClient(ctx context.Context, config *ClientConfig) (*Client, error) {
 		remoteDNS:     remoteDNS,
 		tunnels:       make(map[*tunnel]struct{}),
 	}
-	xmuxConfig := transportConfig.Xmux
-	if xmuxConfig == nil {
-		xmuxConfig = &splithttp.XmuxConfig{}
-	}
-	c.xmux = splithttp.NewXmuxManager(*xmuxConfig, c.newXmuxConn)
+	c.xmux = splithttp.NewXmuxManager(transportConfig.Xmux, c.newXmuxConn)
 	c.ctx, c.cancel = context.WithCancel(context.Background())
 	return c, nil
 }

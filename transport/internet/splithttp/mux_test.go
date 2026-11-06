@@ -18,7 +18,7 @@ func TestMaxConnections(t *testing.T) {
 		MaxConnections: &RangeConfig{From: 4, To: 4},
 	}
 
-	xmuxManager := NewXmuxManager(xmuxConfig, func() XmuxConn {
+	xmuxManager := NewXmuxManager(&xmuxConfig, func() XmuxConn {
 		return &fakeRoundTripper{}
 	})
 
@@ -37,7 +37,7 @@ func TestCMaxReuseTimes(t *testing.T) {
 		CMaxReuseTimes: &RangeConfig{From: 2, To: 2},
 	}
 
-	xmuxManager := NewXmuxManager(xmuxConfig, func() XmuxConn {
+	xmuxManager := NewXmuxManager(&xmuxConfig, func() XmuxConn {
 		return &fakeRoundTripper{}
 	})
 
@@ -56,7 +56,7 @@ func TestMaxConcurrency(t *testing.T) {
 		MaxConcurrency: &RangeConfig{From: 2, To: 2},
 	}
 
-	xmuxManager := NewXmuxManager(xmuxConfig, func() XmuxConn {
+	xmuxManager := NewXmuxManager(&xmuxConfig, func() XmuxConn {
 		return &fakeRoundTripper{}
 	})
 
@@ -73,21 +73,18 @@ func TestMaxConcurrency(t *testing.T) {
 }
 
 func TestDefault(t *testing.T) {
-	xmuxConfig := XmuxConfig{}
-
-	xmuxManager := NewXmuxManager(xmuxConfig, func() XmuxConn {
-		return &fakeRoundTripper{}
-	})
-
-	xmuxClients := make(map[interface{}]struct{})
-	for i := 0; i < 64; i++ {
-		xmuxClient := xmuxManager.GetXmuxClient(context.Background())
-		xmuxClient.AddRunning()
-		xmuxClients[xmuxClient] = struct{}{}
-	}
-
-	if len(xmuxClients) != 1 {
-		t.Error("did not get 1 distinct clients, got ", len(xmuxClients))
+	for name, config := range map[string]*XmuxConfig{"nil": nil, "empty": {}} {
+		t.Run(name, func(t *testing.T) {
+			manager := NewXmuxManager(config, func() XmuxConn { return &fakeRoundTripper{} })
+			first := manager.GetXmuxClient(context.Background())
+			for i := 0; i < 64; i++ {
+				client := manager.GetXmuxClient(context.Background())
+				client.AddRunning()
+				if client != first {
+					t.Fatal("default policy replaced the existing connection")
+				}
+			}
+		})
 	}
 }
 
@@ -96,7 +93,7 @@ func TestGetExistingXmuxClient(t *testing.T) {
 		MaxConnections: &RangeConfig{From: 2, To: 2},
 	}
 
-	xmuxManager := NewXmuxManager(xmuxConfig, func() XmuxConn {
+	xmuxManager := NewXmuxManager(&xmuxConfig, func() XmuxConn {
 		return &fakeRoundTripper{}
 	})
 
@@ -108,5 +105,19 @@ func TestGetExistingXmuxClient(t *testing.T) {
 		if xmuxManager.GetExistingXmuxClient(context.Background()) != xmuxClient {
 			t.Error("did not reuse the existing client")
 		}
+	}
+}
+
+func TestXmuxManagerKeepsReusePolicyAfterConfigMutation(t *testing.T) {
+	config := XmuxConfig{CMaxReuseTimes: &RangeConfig{From: 2, To: 2}}
+	manager := NewXmuxManager(&config, func() XmuxConn { return &fakeRoundTripper{} })
+	config.CMaxReuseTimes.From = 1
+	config.CMaxReuseTimes.To = 1
+	first := manager.GetXmuxClient(context.Background())
+	if got := manager.GetXmuxClient(context.Background()); got != first {
+		t.Fatal("caller config mutation changed the manager's two-use connection policy")
+	}
+	if got := manager.GetXmuxClient(context.Background()); got == first {
+		t.Fatal("connection was reused after its original two-use policy expired")
 	}
 }
