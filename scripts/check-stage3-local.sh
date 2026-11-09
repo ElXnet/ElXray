@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ElX stage-3 verification. Runs in a real checked-out pair of repositories.
-# No GitHub Actions required. Does not mutate source, live policy or database.
+# No GitHub Actions required. Fetches only checksum-verified test assets; does not touch live policy or database.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -39,11 +39,11 @@ check_format() {
     return 1
   fi
 }
-echo "[1/7] core Go 1.27 gofumpt formatting — same as CI"
+echo "[1/8] core Go 1.27 gofumpt formatting — same as CI"
 (cd "$root"; go run ./infra/vformat/main.go -mode check)
-echo "[2/7] Control gofmt formatting"
+echo "[2/8] Control gofmt formatting"
 check_format "$control"
-echo "[3/7] core focused/race"
+echo "[3/8] core focused/race"
 (cd "$root"; go test -count=1 -race ./common/elxjournal ./common/subscriptionrate ./app/policy ./app/policy/command)
 if [[ "${ELX_STAGE3_FAST:-0}" == "1" ]]; then
   echo "FAST MODE: focused race suites + vet; full test suite is NOT RUN."
@@ -52,13 +52,15 @@ if [[ "${ELX_STAGE3_FAST:-0}" == "1" ]]; then
   echo "LOCAL FOCUSED CHECKS PASS; full repository/E2E NOT RUN (ELX_STAGE3_FAST=1)"
   exit 0
 fi
-echo "[4/7] core repository-wide suite and static analysis"
+echo "[4/8] download/verify test geodata (identical to CI)"
+bash "$root/scripts/prepare-stage3-test-assets.sh"
+echo "[5/8] core repository-wide suite and static analysis"
 (cd "$root"; go test -count=1 ./...; go vet ./...)
-echo "[5/7] Control focused/race"
+echo "[6/8] Control focused/race"
 (cd "$control"; go test -count=1 -race ./internal/elxcontrol/journal ./internal/elxcontrol/policytransport ./internal/elxcontrol/corepolicy ./cmd/elx-control)
-echo "[6/7] Control repository-wide suite and static analysis"
+echo "[7/8] Control repository-wide suite and static analysis"
 (cd "$control"; go test -count=1 ./...; go vet ./...)
-echo "[7/7] PostgreSQL integration coverage"
+echo "[8/8] PostgreSQL integration coverage"
 if [[ -z "${ELX_TEST_POSTGRES_DSN:-}" ]]; then
   echo "NOT RUN: PostgreSQL integration tests (set ELX_TEST_POSTGRES_DSN to isolated non-production PostgreSQL)"
   echo "Status: LOCAL GO TESTS PASS, POSTGRES E2E NOT RUN; stage3 full acceptance NOT DONE."
