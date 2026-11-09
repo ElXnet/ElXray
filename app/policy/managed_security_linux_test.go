@@ -41,6 +41,11 @@ func newManagedTestPolicy(t *testing.T) (*Instance, ed25519.PrivateKey, uuid.UUI
 	t.Setenv("ELXRAY_POLICY_STATE", path)
 	t.Setenv("ELXRAY_CONTROL_LEASE_PUBLIC_KEY", base64.StdEncoding.EncodeToString(pub))
 	t.Setenv("ELXRAY_CONTROL_LEASE_NODE_UUID", node.String())
+	resource := uuid.New()
+	executor := uuid.New()
+	t.Setenv("ELXRAY_CONTROL_LEASE_RESOURCE_UUID", resource.String())
+	t.Setenv("ELXRAY_CONTROL_LEASE_EXECUTOR_UUID", executor.String())
+	t.Setenv("ELXRAY_CONTROL_LEASE_MIN_AUTHORITY_GENERATION", "8")
 	t.Setenv("ELXRAY_AGENT_UID", strconv.Itoa(os.Geteuid()+42))
 	t.Setenv("ELXRAY_AGENT_GID", "65534")
 	m, err := New(context.Background(), &Config{RequireSubscription: true, Subscriptions: map[string]*SubscriptionPolicy{
@@ -67,7 +72,8 @@ func TestManagedRatesRejectUnsignedRaiseBetweenLeaseRenewals(t *testing.T) {
 	}
 	now := time.Now().Unix()
 	ticket := ControlLease{
-		NodeID: node, Subscription: "lab", Sequence: 1,
+		Version: 3, NodeID: node, ResourceID: m.leaseResourceID, ExecutorID: m.leaseExecutorID,
+		AuthorityGeneration: 8, Subscription: "lab", Sequence: 1,
 		NotBefore: now, NotAfter: now + 15, CeilingUp: 100, CeilingDown: 200,
 	}
 	ticket.Signature = ed25519.Sign(signer, ControlLeaseTranscript(ticket))
@@ -77,6 +83,20 @@ func TestManagedRatesRejectUnsignedRaiseBetweenLeaseRenewals(t *testing.T) {
 	for _, updown := range [][2]uint64{{101, 200}, {100, 201}, {101, 201}, {0, 200}} {
 		if _, err := m.UpdateSubscription(mk(1, updown[0], updown[1], false)); !errors.Is(err, subscriptionrate.ErrUnauthorized) {
 			t.Fatalf("in-lease ceiling exceeded for %v: %v", updown, err)
+		}
+	}
+	for _, mutate := range []func(*ControlLease){
+		func(x *ControlLease) { x.ResourceID = uuid.New() },
+		func(x *ControlLease) { x.ExecutorID = uuid.New() },
+		func(x *ControlLease) { x.AuthorityGeneration = 7 },
+		func(x *ControlLease) { x.Version = 2 },
+	} {
+		invalid := ticket
+		invalid.Sequence = 2
+		mutate(&invalid)
+		invalid.Signature = ed25519.Sign(signer, ControlLeaseTranscript(invalid))
+		if err := m.RenewControlLease(invalid); err == nil {
+			t.Fatalf("accepted foreign or stale signed authority: %+v", invalid)
 		}
 	}
 	p, err := m.GetSubscription("lab")
