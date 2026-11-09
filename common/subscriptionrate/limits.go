@@ -158,6 +158,20 @@ func (l *Limits) ActiveLeaseDeadline() (time.Time, bool) {
 	return l.leaseDeadline, true
 }
 
+// VerifiedLeaseDeadline is for Control management state transitions only.
+// A signed lease may be installed while the policy is intentionally disabled;
+// that does NOT admit payload (TrackConnection and WaitN still deny). It lets
+// an authenticated, in-ceiling Control policy command re-enable the account.
+func (l *Limits) VerifiedLeaseDeadline() (time.Time, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := time.Now()
+	if !l.leaseRequired || l.barrierActive || l.leaseDue(now) {
+		return time.Time{}, false
+	}
+	return l.leaseDeadline, true
+}
+
 // RenewLease is called ONLY by the core's Ed25519-verifying policy manager.
 // The deadline is a wall-clock upper bound: replaying a signed ticket cannot
 // extend its original lifetime. It may only increase, never roll back.
