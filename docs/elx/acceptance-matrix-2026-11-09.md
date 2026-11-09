@@ -87,7 +87,7 @@ Legend: **CORE** = observed mechanism in code, not full acceptance; **PARTIAL** 
 ## Version / migration gates
 
 1. `go.mod`: core Go 1.27; module path `github.com/xtls/xray-core`. Consumer uses embedded `command.proto` equal blob SHA `bfd1709ca96a7919554e0254272feff8ba0b6c7f`; do not silently rewrite legacy fields.
-2. `contracts/elx/v1/managed.proto` is TARGET logical schema, **not runtime implementation**. Stage 2–7 must add actual authenticated, signed durable operations and Control consumer with matching hash.
+2. `contracts/elx/v1/managed.proto.txt` is TARGET logical schema, **not runtime implementation**. Stage 2–7 must add actual authenticated, signed durable operations and Control consumer with matching hash.
 3. `contracts/elx/v1/golden.json` captures unsigned exact bytes, SHA-256, semantics of existing signed evidence and proposed grant transcript; tests are not proofs that runtime enforces policies.
 4. Stage 3 durable `savedPolicies.Version=1` migration MUST require authenticated Control reconcile, never grant admission from a restored snapshot. Stage 4 provisions grants and bindings without legacy JSON manual edits.
 5. Stage 5 **must empirically settle** real VLESS REALITY Vision/XHTTP authenticated flow carrier; unsupported results are a block, not grounds to disable proof. Stage 6 only advertises flow-proof following real adversarial traffic tests.
