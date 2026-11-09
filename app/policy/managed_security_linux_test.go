@@ -303,7 +303,7 @@ func TestManagedCoreRejectsIndependentProfileTombstoneRollback(t *testing.T) {
 		t.Fatal("core accepted a validly signed Control witness without matching denial HWM")
 	}
 	profile := uuid.NewString()
-	if err := m.opJournal.RecordDeniedProfile(profile.String(), 10); err != nil {
+	if err := m.opJournal.RecordDeniedProfile(profile, 10); err != nil {
 		t.Fatal(err)
 	}
 	// A previously valid Control witness for the original empty denial
