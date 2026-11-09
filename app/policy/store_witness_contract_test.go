@@ -18,11 +18,12 @@ func TestCoreStoreWitnessGoldenMatchesControl(t *testing.T) {
 		AuthorityGeneration: 9, CoreRevision: 2,
 		CoreIncarnation: "55555555-5555-4555-8555-555555555555",
 		LastOperationID: "11111111-1111-4111-8111-111111111111",
+		TombstonesSHA256: "eab4b2179450179f4800ff300bcc16116728c6dd60bf5ea2e10020b9ef0f5693",
 		Nonce:           "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
 		NotBefore:       1700000000, NotAfter: 1700000015,
 	}
 	sum := sha256.Sum256(StoreWitnessTranscript(w))
-	if hex.EncodeToString(sum[:]) != "83a04e563aaf5d4d0b4711fc090abad9d77164b2b69cac70da6e0994b28392a3" {
+	if hex.EncodeToString(sum[:]) != "0a4db3a3f4127c05fce5a9db65ece76326fafadc9025f3f5b3167c74609258db" {
 		t.Fatalf("ElXray/ElX-control independent witness drift: %x", sum)
 	}
 	k := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x42}, ed25519.SeedSize))
