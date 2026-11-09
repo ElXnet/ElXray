@@ -70,6 +70,16 @@ func New(ctx context.Context, config *Config) (*Instance, error) {
 			return nil, err
 		}
 	}
+	if mode == "managed" {
+		// A rate of zero means UNLIMITED to upstream Xray. An initial
+		// unmanaged/legacy JSON policy must never become an unlimited
+		// session merely because a valid finite Control lease is delivered.
+		for id, p := range config.Subscriptions {
+			if p == nil || p.UplinkBps == 0 || p.DownlinkBps == 0 {
+				return nil, errors.New("managed subscription " + id + " requires finite positive rates")
+			}
+		}
+	}
 	subscriptions, err := BuildSubscriptionRates(config.Subscriptions)
 	if err != nil {
 		return nil, err
