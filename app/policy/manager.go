@@ -15,8 +15,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/xtls/xray-core/common"
-	"github.com/xtls/xray-core/common/elxsecurity"
 	"github.com/xtls/xray-core/common/elxjournal"
+	"github.com/xtls/xray-core/common/elxsecurity"
 	"github.com/xtls/xray-core/common/sessionfence"
 	"github.com/xtls/xray-core/common/subscriptionrate"
 	"github.com/xtls/xray-core/features/policy"
@@ -151,8 +151,12 @@ func New(ctx context.Context, config *Config) (*Instance, error) {
 	// Missing/torn/ambiguous journal must never initialize as empty state.
 	if mode == "managed" && os.Getenv("ELXRAY_OP_JOURNAL") != "" {
 		journal, err := elxjournal.Open(os.Getenv("ELXRAY_OP_JOURNAL"))
-		if err != nil { return nil, err }
-		if journal.HasPending() { return nil, elxjournal.ErrUncertain }
+		if err != nil {
+			return nil, err
+		}
+		if journal.HasPending() {
+			return nil, elxjournal.ErrUncertain
+		}
 		m.opJournal = journal
 	}
 	if path := os.Getenv("ELXRAY_POLICY_STATE"); path != "" {
