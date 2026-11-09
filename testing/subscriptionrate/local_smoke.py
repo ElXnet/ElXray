@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 from pathlib import Path
 import socket
 import subprocess
@@ -54,7 +55,15 @@ def run(binary, size):
         def spawn(args, port):
             log = open(folder / f"process-{port}.log", "w+", encoding="utf-8")
             logs.append(log)
-            process = subprocess.Popen(args, stdout=log, stderr=subprocess.STDOUT)
+            # Isolated rate lab intentionally uses standalone Commander, never managed.
+            env = dict(os.environ)
+            if args[0] == str(binary):
+                env["ELXRAY_MODE"] = "standalone"
+                for key in ("ELXRAY_REQUIRE_CONTROL_LEASE", "ELXRAY_CONTROL_LEASE_PUBLIC_KEY",
+                            "ELXRAY_CONTROL_LEASE_NODE_UUID", "ELXRAY_CONTROL_LEASE_BINDINGS_FILE",
+                            "ELXRAY_AGENT_UID", "ELXRAY_AGENT_GID"):
+                    env.pop(key, None)
+            process = subprocess.Popen(args, stdout=log, stderr=subprocess.STDOUT, env=env)
             processes.append(process)
             wait_ready(process, port)
 

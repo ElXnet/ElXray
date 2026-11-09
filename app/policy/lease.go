@@ -13,17 +13,29 @@ import (
 // ControlLease is an absolute-expiry authorisation signed by the central
 // Control key. Rate updates and their ACKs NEVER renew this lease.
 type ControlLease struct {
-	NodeID       uuid.UUID
-	Subscription string
-	Sequence     int64
-	NotBefore    int64
-	NotAfter     int64
-	CeilingUp    int64
-	CeilingDown  int64
-	Signature    []byte
+	Version             uint32
+	NodeID              uuid.UUID
+	ResourceID          uuid.UUID
+	ExecutorID          uuid.UUID
+	AuthorityGeneration uint64
+	Subscription        string
+	Sequence            int64
+	NotBefore           int64
+	NotAfter            int64
+	CeilingUp           int64
+	CeilingDown         int64
+	Signature           []byte
 }
 
+// ControlLeaseTranscript retains v2 bytes for archival fixtures only.
+// Managed ElXray strictly accepts version 3, bound to core/resource/executor
+// and a monotonically increasing Control-authorized grant epoch.
 func ControlLeaseTranscript(t ControlLease) []byte {
+	if t.Version == 3 {
+		return fmt.Appendf(nil, "elx-control-lease-v3\n%s\n%s\n%s\n%s\n%d\n%d\n%d\n%d\n%d\n%d",
+			t.NodeID, t.ResourceID, t.ExecutorID, t.Subscription,
+			t.Sequence, t.NotBefore, t.NotAfter, t.CeilingUp, t.CeilingDown, t.AuthorityGeneration)
+	}
 	return fmt.Appendf(nil, "elx-control-lease-v2\n%s\n%s\n%d\n%d\n%d\n%d\n%d",
 		t.NodeID, t.Subscription, t.Sequence, t.NotBefore, t.NotAfter, t.CeilingUp, t.CeilingDown)
 }
@@ -35,7 +47,10 @@ func (m *Instance) RenewControlLease(t ControlLease) error {
 		return errors.New("Control lease enforcement is not configured")
 	}
 	now := time.Now()
-	if t.NodeID != m.leaseNodeID || t.Subscription == "" || len(t.Subscription) > 1024 ||
+	binding, bound := m.leaseBindings[t.Subscription]
+	if !bound || t.Version != 3 || t.ResourceID != binding.ResourceID ||
+		t.ExecutorID != binding.ExecutorID || t.AuthorityGeneration < binding.MinAuthorityGeneration ||
+		t.NodeID != m.leaseNodeID || t.Subscription == "" || len(t.Subscription) > 1024 ||
 		t.Sequence <= 0 || t.NotBefore > now.Unix()+5 ||
 		t.NotBefore < now.Unix()-30 || t.NotAfter <= now.Unix() ||
 		t.NotAfter-t.NotBefore <= 0 || t.NotAfter-t.NotBefore > 30 ||
@@ -58,6 +73,9 @@ func (m *Instance) RenewControlLease(t ControlLease) error {
 	if p.UplinkBps > uint64(t.CeilingUp) || p.DownlinkBps > uint64(t.CeilingDown) {
 		return errors.New("core subscription exceeds Control committed speed ceiling")
 	}
+	if t.AuthorityGeneration < m.leaseGeneration[t.Subscription] {
+		return errors.New("stale Control grant authority generation")
+	}
 	if t.Sequence <= m.leaseSeq[t.Subscription] {
 		return errors.New("replayed or stale Control lease sequence")
 	}
@@ -71,10 +89,11 @@ func (m *Instance) RenewControlLease(t ControlLease) error {
 	if !limits.RenewLease(time.Now().Add(time.Until(time.Unix(t.NotAfter, 0)))) {
 		return errors.New("Control lease was not installed in live limiter")
 	}
-	if _, active := limits.ActiveLeaseDeadline(); !active {
+	if _, active := limits.VerifiedLeaseDeadline(); !active {
 		return errors.New("Control lease enforcement is not active")
 	}
 	m.leaseSeq[t.Subscription] = t.Sequence
+	m.leaseGeneration[t.Subscription] = t.AuthorityGeneration
 	m.leaseAccepted[t.Subscription] = t
 	return nil
 }

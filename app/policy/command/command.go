@@ -7,6 +7,7 @@ import (
 	"net"
 
 	"github.com/xtls/xray-core/common"
+	"github.com/xtls/xray-core/common/elxsecurity"
 	"github.com/xtls/xray-core/common/subscriptionrate"
 	"github.com/xtls/xray-core/core"
 	"github.com/xtls/xray-core/features/policy"
@@ -34,6 +35,20 @@ func (s *service) Register(server *grpc.Server) {
 // to a local authenticated supervisor; WireGuard IP alone is not an API credential.
 func checkLocalPeer(ctx context.Context) error {
 	p, ok := peer.FromContext(ctx)
+	if elxsecurity.Managed() {
+		uid, gid, err := elxsecurity.AgentIdentity()
+		if err != nil || !ok || p == nil {
+			return status.Error(codes.PermissionDenied, "managed Commander requires authenticated agent identity")
+		}
+		if _, isUnix := p.Addr.(*net.UnixAddr); !isUnix {
+			return status.Error(codes.PermissionDenied, "managed Commander rejects TCP and forwarded connections")
+		}
+		identity, verified := p.AuthInfo.(elxsecurity.UnixPeerInfo)
+		if !verified || identity.UID != uid || identity.GID != gid || identity.PID <= 0 {
+			return status.Error(codes.PermissionDenied, "managed Commander requires kernel-verified agent credentials")
+		}
+		return nil
+	}
 	if ok {
 		switch a := p.Addr.(type) {
 		case *net.TCPAddr:
@@ -57,6 +72,8 @@ func rpcError(err error) error {
 		return status.Error(codes.NotFound, err.Error())
 	case errors.Is(err, subscriptionrate.ErrConflict):
 		return status.Error(codes.Aborted, err.Error())
+	case errors.Is(err, subscriptionrate.ErrUnauthorized):
+		return status.Error(codes.PermissionDenied, err.Error())
 	case errors.Is(err, subscriptionrate.ErrInvalid):
 		return status.Error(codes.InvalidArgument, err.Error())
 	default:
@@ -159,7 +176,7 @@ func (s *service) SetSubscription(ctx context.Context, r *SetSubscriptionRequest
 	if r == nil || r.UplinkBps == nil || r.DownlinkBps == nil || r.Disabled == nil {
 		return nil, status.Error(codes.InvalidArgument, "both rates and disabled must be explicit")
 	}
-	// Commander authenticates locality only. Unlimited rates must be set
+	// Standalone compatibility permits local CLI, but never unlimited runtime rates. Unlimited rates must be set
 	// through the administrator-owned startup configuration.
 	if r.GetUplinkBps() == 0 || r.GetDownlinkBps() == 0 {
 		return nil, status.Error(codes.PermissionDenied, "unlimited rates require administrator configuration")

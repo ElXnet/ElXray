@@ -20,6 +20,9 @@ import (
 )
 
 func TestSignedControlLeaseRequiresNodeAndAbsoluteExpiry(t *testing.T) {
+	t.Setenv("ELXRAY_MODE", "managed")
+	t.Setenv("ELXRAY_AGENT_UID", fmt.Sprint(os.Geteuid()+100))
+	t.Setenv("ELXRAY_AGENT_GID", "65534")
 	pub, key, err := ed25519.GenerateKey(nil)
 	if err != nil {
 		t.Fatal(err)
@@ -40,6 +43,13 @@ func TestSignedControlLeaseRequiresNodeAndAbsoluteExpiry(t *testing.T) {
 	t.Setenv("ELXRAY_REQUIRE_CONTROL_LEASE", "1")
 	t.Setenv("ELXRAY_CONTROL_LEASE_PUBLIC_KEY", base64.StdEncoding.EncodeToString(pub))
 	t.Setenv("ELXRAY_CONTROL_LEASE_NODE_UUID", node.String())
+	resource := uuid.New()
+	executor := uuid.New()
+	bindings := filepath.Join(t.TempDir(), "bindings.json")
+	if err := os.WriteFile(bindings, []byte(fmt.Sprintf(`{"lab":{"resourceId":%q,"executorId":%q,"minAuthorityGeneration":7}}`, resource.String(), executor.String())), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ELXRAY_CONTROL_LEASE_BINDINGS_FILE", bindings)
 	m, err := New(context.Background(), &Config{
 		RequireSubscription: true,
 		Subscriptions: map[string]*SubscriptionPolicy{
@@ -59,23 +69,36 @@ func TestSignedControlLeaseRequiresNodeAndAbsoluteExpiry(t *testing.T) {
 	}
 	now := time.Now().Unix()
 	ticket := ControlLease{
-		NodeID: node, Subscription: "lab", Sequence: 1,
+		Version: 3, NodeID: node, ResourceID: resource, ExecutorID: executor,
+		AuthorityGeneration: 7, Subscription: "lab", Sequence: 1,
 		NotBefore: now, NotAfter: now + 15, CeilingUp: 100, CeilingDown: 200,
 	}
 	sign := func(tick ControlLease) ControlLease {
 		tick.Signature = ed25519.Sign(key, ControlLeaseTranscript(tick))
 		return tick
 	}
-	for _, bad := range []ControlLease{
-		{NodeID: uuid.New(), Subscription: "lab", Sequence: 1, NotBefore: now, NotAfter: now + 15},
-		{NodeID: node, Subscription: "other", Sequence: 1, NotBefore: now, NotAfter: now + 15},
-		{NodeID: node, Subscription: "lab", Sequence: 1, NotBefore: now + 8, NotAfter: now + 15},
-		{NodeID: node, Subscription: "lab", Sequence: 1, NotBefore: now, NotAfter: now + 120},
-		{NodeID: node, Subscription: "lab", Sequence: 1, NotBefore: now - 60, NotAfter: now + 15},
-		{NodeID: node, Subscription: "lab", Sequence: 0, NotBefore: now, NotAfter: now + 15},
-		{NodeID: node, Subscription: "lab", Sequence: 1, NotBefore: now, NotAfter: now + 15, CeilingUp: 50, CeilingDown: 200},
-		{NodeID: node, Subscription: "lab", Sequence: 1, NotBefore: now, NotAfter: now + 15, CeilingUp: 100, CeilingDown: 80},
+	// Preserve the valid authority/binding in each negative case. Only one
+	// property is changed, so rejection is attributable to that field.
+	invalid := []ControlLease{}
+	for _, mutate := range []func(*ControlLease){
+		func(x *ControlLease) { x.Version = 0 },
+		func(x *ControlLease) { x.NodeID = uuid.New() },
+		func(x *ControlLease) { x.ResourceID = uuid.New() },
+		func(x *ControlLease) { x.ExecutorID = uuid.New() },
+		func(x *ControlLease) { x.AuthorityGeneration = 6 },
+		func(x *ControlLease) { x.Subscription = "other" },
+		func(x *ControlLease) { x.Sequence = 0 },
+		func(x *ControlLease) { x.NotBefore = now + 8 },
+		func(x *ControlLease) { x.NotBefore = now - 60 },
+		func(x *ControlLease) { x.NotAfter = now + 120 },
+		func(x *ControlLease) { x.CeilingUp = 50 },
+		func(x *ControlLease) { x.CeilingDown = 80 },
 	} {
+		bad := ticket
+		mutate(&bad)
+		invalid = append(invalid, bad)
+	}
+	for _, bad := range invalid {
 		if err := m.RenewControlLease(sign(bad)); err == nil {
 			t.Fatalf("accepted invalid ticket: %+v", bad)
 		}
@@ -101,6 +124,13 @@ func TestSignedControlLeaseRequiresNodeAndAbsoluteExpiry(t *testing.T) {
 	}
 	if err := m.RenewControlLease(sign(ticket)); err != nil {
 		t.Fatal(err)
+	}
+	// Replayed old grant generation with a NEW sequence is still invalid.
+	stale := ticket
+	stale.Sequence = 3
+	stale.AuthorityGeneration = 6
+	if err := m.RenewControlLease(sign(stale)); err == nil {
+		t.Fatal("old authority generation lease accepted")
 	}
 	nonce := "00112233445566778899aabbccddeeff"
 	proof, err := m.SignedLeaseAcceptance("lab", nonce)
@@ -145,6 +175,9 @@ func TestSignedControlLeaseRequiresNodeAndAbsoluteExpiry(t *testing.T) {
 }
 
 func TestLeaseModeRejectsMissingTrustAnchor(t *testing.T) {
+	t.Setenv("ELXRAY_MODE", "managed")
+	t.Setenv("ELXRAY_AGENT_UID", fmt.Sprint(os.Geteuid()+100))
+	t.Setenv("ELXRAY_AGENT_GID", "65534")
 	t.Setenv("ELXRAY_REQUIRE_CONTROL_LEASE", "1")
 	t.Setenv("ELXRAY_CONTROL_LEASE_PUBLIC_KEY", "")
 	t.Setenv("ELXRAY_CONTROL_LEASE_NODE_UUID", uuid.NewString())

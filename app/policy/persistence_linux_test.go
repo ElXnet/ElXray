@@ -12,6 +12,7 @@ import (
 )
 
 func TestDurablePolicyRestore(t *testing.T) {
+	t.Setenv("ELXRAY_MODE", "standalone")
 	path := filepath.Join(t.TempDir(), "state.json")
 	_, key, err := ed25519.GenerateKey(nil)
 	if err != nil {
