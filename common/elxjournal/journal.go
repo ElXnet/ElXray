@@ -189,6 +189,13 @@ func (j *Journal) BootstrapResource(resource string, revision, generation uint64
  return nil
 }
 
+// StoreID is minted only by explicit provision and remains stable across
+// core incarnations; it is included in every signed applied-op receipt.
+func (j *Journal) StoreID() string {
+ j.mu.Lock();defer j.mu.Unlock()
+ return j.img.StoreID
+}
+
 // ResourceState is a read-only local high-water view. The caller must compare
 // it against the independently trusted Control grant before admitting traffic.
 func (j *Journal) ResourceState(resource string) (revision,generation uint64, ok bool) {
