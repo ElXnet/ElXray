@@ -1,0 +1,34 @@
+name: ElX managed contracts v1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'contracts/elx/**'
+      - 'docs/elx/adr/**'
+      - 'scripts/check_elx_contracts.py'
+      - 'app/policy/command/command.proto'
+      - '.github/workflows/elx-contracts.yml'
+  pull_request:
+    paths:
+      - 'contracts/elx/**'
+      - 'docs/elx/adr/**'
+      - 'scripts/check_elx_contracts.py'
+      - 'app/policy/command/command.proto'
+      - '.github/workflows/elx-contracts.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pinned-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Validate legacy and target transcript bytes, proto drift, negative fixtures
+        run: python scripts/check_elx_contracts.py
