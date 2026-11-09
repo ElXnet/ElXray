@@ -43,7 +43,10 @@ func (m *Instance) SignedLeaseAcceptance(id, challenge string) ([]byte, error) {
 	ticket, ok := m.leaseAccepted[id]
 	policy, policyOK := m.subscriptionPolicies[id]
 	if !ok || !policyOK || len(policy.Emails) == 0 || policy.Disabled ||
-		ticket.Subscription != id || ticket.NodeID != m.leaseNodeID ||
+		ticket.Version != 3 || ticket.Subscription != id || ticket.NodeID != m.leaseNodeID ||
+		ticket.ResourceID != m.leaseResourceID || ticket.ExecutorID != m.leaseExecutorID ||
+		ticket.AuthorityGeneration < m.leaseMinGeneration ||
+		ticket.AuthorityGeneration != m.leaseGeneration[id] ||
 		ticket.Sequence <= 0 || m.leaseSeq[id] != ticket.Sequence ||
 		ticket.NotAfter <= time.Now().Unix()+1 ||
 		ticket.CeilingUp <= 0 || ticket.CeilingDown <= 0 ||
