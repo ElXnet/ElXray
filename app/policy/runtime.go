@@ -59,7 +59,11 @@ func (m *Instance) UpdateSubscription(u subscriptionrate.Update) (subscriptionra
 				t, ok := m.leaseAccepted[u.ID]
 				deadline, active := limits.ActiveLeaseDeadline()
 				if !ok || !active || !deadline.After(time.Now().Add(time.Second)) ||
-					t.NodeID != m.leaseNodeID || t.Subscription != u.ID || t.Sequence <= 0 ||
+					t.Version != 3 || t.NodeID != m.leaseNodeID ||
+					t.ResourceID != m.leaseResourceID || t.ExecutorID != m.leaseExecutorID ||
+					t.AuthorityGeneration < m.leaseMinGeneration ||
+					t.AuthorityGeneration != m.leaseGeneration[u.ID] ||
+					t.Subscription != u.ID || t.Sequence <= 0 ||
 					m.leaseSeq[u.ID] != t.Sequence || t.NotAfter <= time.Now().Unix()+1 ||
 					t.CeilingUp <= 0 || t.CeilingDown <= 0 ||
 					u.UplinkBps > uint64(t.CeilingUp) || u.DownlinkBps > uint64(t.CeilingDown) {
