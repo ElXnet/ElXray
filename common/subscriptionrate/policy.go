@@ -3,9 +3,9 @@ package subscriptionrate
 import "errors"
 
 var (
-	ErrNotFound = errors.New("subscription not found")
-	ErrConflict = errors.New("subscription revision conflict")
-	ErrInvalid  = errors.New("invalid subscription update")
+	ErrNotFound     = errors.New("subscription not found")
+	ErrConflict     = errors.New("subscription revision conflict")
+	ErrInvalid      = errors.New("invalid subscription update")
 	ErrUnauthorized = errors.New("managed subscription update exceeds signed Control authority")
 )
 
