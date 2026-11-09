@@ -47,8 +47,9 @@ func (m *Instance) RenewControlLease(t ControlLease) error {
 		return errors.New("Control lease enforcement is not configured")
 	}
 	now := time.Now()
-	if t.Version != 3 || t.ResourceID != m.leaseResourceID ||
-		t.ExecutorID != m.leaseExecutorID || t.AuthorityGeneration < m.leaseMinGeneration ||
+	binding, bound := m.leaseBindings[t.Subscription]
+	if !bound || t.Version != 3 || t.ResourceID != binding.ResourceID ||
+		t.ExecutorID != binding.ExecutorID || t.AuthorityGeneration < binding.MinAuthorityGeneration ||
 		t.NodeID != m.leaseNodeID || t.Subscription == "" || len(t.Subscription) > 1024 ||
 		t.Sequence <= 0 || t.NotBefore > now.Unix()+5 ||
 		t.NotBefore < now.Unix()-30 || t.NotAfter <= now.Unix() ||
