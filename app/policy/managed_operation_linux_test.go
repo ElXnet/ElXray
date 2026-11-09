@@ -5,6 +5,7 @@ package policy
 import (
 	"context"
 	"crypto/ed25519"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -58,6 +59,24 @@ func TestDurableManagedOperationApplyDedupAndRestart(t *testing.T) {
 	}
 	if proof, err := m.DurablePolicyProof(p, "stage3-claim"); err != nil || len(proof) != ed25519.SignatureSize {
 		t.Fatalf("applied durable policy proof unavailable: %v", err)
+	}
+	const challenge = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
+	rawReceipt, err := m.SignedManagedReceipt("lab", cmd.OperationID, challenge)
+	if err != nil { t.Fatal(err) }
+	var receipt ManagedOperationEvidence
+	if err := json.Unmarshal(rawReceipt, &receipt); err != nil { t.Fatal(err) }
+	if receipt.OperationID != cmd.OperationID || receipt.Revision != update.Revision ||
+		receipt.StoreID != m.opJournal.StoreID() || receipt.AuthorityGeneration != 8 ||
+		!ed25519.Verify(m.store.key.Public().(ed25519.PublicKey),
+			receipt.transcript(challenge), receipt.Signature) {
+		t.Fatal("durable operation receipt does not match pinned core and journal")
+	}
+	if ed25519.Verify(m.store.key.Public().(ed25519.PublicKey),
+		receipt.transcript("ffeeddccbbaa99887766554433221100"), receipt.Signature) {
+		t.Fatal("managed operation receipt was replayable under another challenge")
+	}
+	if _, err := m.SignedManagedReceipt("lab", uuid.NewString(), challenge); err == nil {
+		t.Fatal("non-applied operation received signed success")
 	}
 	if p, err = m.UpdateManagedSubscription(update, cmd); err != nil || p.Revision != 2 {
 		t.Fatalf("same operation retry changed state: %+v %v", p, err)
