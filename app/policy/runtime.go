@@ -6,6 +6,7 @@ import (
 	"math"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/xtls/xray-core/common/subscriptionrate"
 )
@@ -41,6 +42,31 @@ func (m *Instance) UpdateSubscription(u subscriptionrate.Update) (subscriptionra
 			return subscriptionrate.Policy{}, subscriptionrate.ErrConflict
 		}
 		limits := m.subscriptions[strings.ToLower(p.Emails[0])]
+		// In lease-enforced mode, a caller can never turn a reduction, an
+		// outdated reservation or a disabled subscription into a new grant.
+		// Verify the actual accepted, still-enforced, node-bound Control
+		// ceiling ON EVERY enabling/increasing update, not only at Renew.
+		// Deny and monotonic reductions remain available during an outage.
+		if len(m.leasePublicKey) != 0 {
+			if u.UplinkBps == 0 || u.DownlinkBps == 0 || limits == nil {
+				return subscriptionrate.Policy{}, subscriptionrate.ErrUnauthorized
+			}
+			requiresGrant := !u.Disabled && (p.Disabled || u.UplinkBps > p.UplinkBps || u.DownlinkBps > p.DownlinkBps)
+			if u.Disabled && (u.UplinkBps > p.UplinkBps || u.DownlinkBps > p.DownlinkBps) {
+				return subscriptionrate.Policy{}, subscriptionrate.ErrUnauthorized
+			}
+			if requiresGrant {
+				t, ok := m.leaseAccepted[u.ID]
+				deadline, active := limits.ActiveLeaseDeadline()
+				if !ok || !active || !deadline.After(time.Now().Add(time.Second)) ||
+					t.NodeID != m.leaseNodeID || t.Subscription != u.ID || t.Sequence <= 0 ||
+					m.leaseSeq[u.ID] != t.Sequence || t.NotAfter <= time.Now().Unix()+1 ||
+					t.CeilingUp <= 0 || t.CeilingDown <= 0 ||
+					u.UplinkBps > uint64(t.CeilingUp) || u.DownlinkBps > uint64(t.CeilingDown) {
+					return subscriptionrate.Policy{}, subscriptionrate.ErrUnauthorized
+				}
+			}
+		}
 		p.UplinkBps, p.DownlinkBps, p.Disabled, p.Revision = u.UplinkBps, u.DownlinkBps, u.Disabled, u.Revision
 		if m.store != nil {
 			next := maps.Clone(m.subscriptionPolicies)
