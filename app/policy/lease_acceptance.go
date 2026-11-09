@@ -41,11 +41,12 @@ func (m *Instance) SignedLeaseAcceptance(id, challenge string) ([]byte, error) {
 		return nil, errors.New("durable core lease enforcement unavailable")
 	}
 	ticket, ok := m.leaseAccepted[id]
+	binding, bound := m.leaseBindings[id]
 	policy, policyOK := m.subscriptionPolicies[id]
-	if !ok || !policyOK || len(policy.Emails) == 0 || policy.Disabled ||
+	if !ok || !policyOK || !bound || len(policy.Emails) == 0 || policy.Disabled ||
 		ticket.Version != 3 || ticket.Subscription != id || ticket.NodeID != m.leaseNodeID ||
-		ticket.ResourceID != m.leaseResourceID || ticket.ExecutorID != m.leaseExecutorID ||
-		ticket.AuthorityGeneration < m.leaseMinGeneration ||
+		ticket.ResourceID != binding.ResourceID || ticket.ExecutorID != binding.ExecutorID ||
+		ticket.AuthorityGeneration < binding.MinAuthorityGeneration ||
 		ticket.AuthorityGeneration != m.leaseGeneration[id] ||
 		ticket.Sequence <= 0 || m.leaseSeq[id] != ticket.Sequence ||
 		ticket.NotAfter <= time.Now().Unix()+1 ||
