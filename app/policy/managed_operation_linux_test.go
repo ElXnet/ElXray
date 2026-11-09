@@ -7,8 +7,8 @@ import (
 	"crypto/ed25519"
 	"encoding/json"
 	"errors"
-	"os"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -64,9 +64,13 @@ func TestDurableManagedOperationApplyDedupAndRestart(t *testing.T) {
 	}
 	const challenge = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
 	rawReceipt, err := m.SignedManagedReceipt("lab", cmd.OperationID, challenge)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	var receipt ManagedOperationEvidence
-	if err := json.Unmarshal(rawReceipt, &receipt); err != nil { t.Fatal(err) }
+	if err := json.Unmarshal(rawReceipt, &receipt); err != nil {
+		t.Fatal(err)
+	}
 	if receipt.OperationID != cmd.OperationID || receipt.Revision != update.Revision ||
 		receipt.StoreID != m.opJournal.StoreID() || receipt.AuthorityGeneration != 8 ||
 		!ed25519.Verify(m.store.key.Public().(ed25519.PublicKey),
@@ -130,17 +134,23 @@ func TestManagedPolicyV1RollbackAndWrongStoreIDRefuseBoot(t *testing.T) {
 	for _, v1 := range []bool{true, false} {
 		t.Run(fmt.Sprint("v1=", v1), func(t *testing.T) {
 			m, _, _ := newManagedTestPolicyWithJournal(t)
-			if err := m.Close(); err != nil { t.Fatal(err) }
+			if err := m.Close(); err != nil {
+				t.Fatal(err)
+			}
 			state := os.Getenv("ELXRAY_POLICY_STATE")
 			data := []byte(`{"Version":1}`)
 			if !v1 {
 				data = []byte(`{"Version":2,"StoreID":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}`)
 			}
-			if err := os.WriteFile(state, data, 0o600); err != nil { t.Fatal(err) }
-			if _, err := New(context.Background(), &Config{RequireSubscription: true,
+			if err := os.WriteFile(state, data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := New(context.Background(), &Config{
+				RequireSubscription: true,
 				Subscriptions: map[string]*SubscriptionPolicy{
 					"lab": {Emails: []string{"user"}, UplinkBps: 100, DownlinkBps: 200, Revision: 1},
-				}}); err == nil {
+				},
+			}); err == nil {
 				t.Fatal("managed node started with legacy or foreign-store policy snapshot")
 			}
 		})
