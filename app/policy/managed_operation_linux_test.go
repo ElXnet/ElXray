@@ -37,7 +37,7 @@ func TestDurableManagedOperationApplyDedupAndRestart(t *testing.T) {
 		NotAfter: now + 15, CeilingUp: 100, CeilingDown: 200,
 	}
 	lease.Signature = ed25519.Sign(signer, ControlLeaseTranscript(lease))
-	if err := m.RenewControlLease(lease); err != nil {
+	if err := m.RenewControlLeaseWithWitness(lease, testStoreWitness(m, lease, signer)); err != nil {
 		t.Fatal(err)
 	}
 	update := subscriptionrate.Update{ID: "lab", ExpectedRevision: 1, Revision: 2, UplinkBps: 90, DownlinkBps: 180}
