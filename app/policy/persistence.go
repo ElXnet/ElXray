@@ -19,6 +19,7 @@ import (
 
 type savedPolicies struct {
 	Version        int
+	StoreID        string `json:"StoreID,omitempty"`
 	Base           map[string]subscriptionrate.Policy
 	Current        map[string]subscriptionrate.Policy
 	DeniedProfiles []string `json:",omitempty"`
@@ -26,14 +27,17 @@ type savedPolicies struct {
 
 type policyStore struct {
 	path   string
+	version int
+	storeID string
 	lock   *os.File
 	key    ed25519.PrivateKey
 	base   map[string]subscriptionrate.Policy
 	failed bool
 }
 
-// A provisioned empty manifest is exactly {"Version":1}. Missing or damaged
-// files are never treated as a fresh state directory.
+// Standalone still accepts its exact version-1 startup manifest. A durable
+// managed journal requires an explicitly migrated version-2 snapshot pinned to
+// that journal's store ID; no silent v1 upgrade or state regeneration is safe.
 func (m *Instance) restorePolicies(path string) error {
 	if !filepath.IsAbs(path) {
 		return errors.New("policy state path must be absolute")
@@ -42,7 +46,12 @@ func (m *Instance) restorePolicies(path string) error {
 	if err != nil {
 		return err
 	}
-	store := &policyStore{path: path, lock: lock, base: maps.Clone(m.subscriptionPolicies)}
+	wantedVersion, wantedStoreID := 1, ""
+	if m.opJournal != nil {
+		wantedVersion, wantedStoreID = 2, m.opJournal.StoreID()
+	}
+	store := &policyStore{path: path, lock: lock, base: maps.Clone(m.subscriptionPolicies),
+		version: wantedVersion, storeID: wantedStoreID}
 	defer func() {
 		if m.store == nil {
 			lock.Close()
@@ -59,11 +68,18 @@ func (m *Instance) restorePolicies(path string) error {
 		return err
 	}
 	var saved savedPolicies
-	if len(data) > maxSize || json.Unmarshal(data, &saved) != nil || saved.Version != 1 {
-		return errors.New("invalid persisted policy state")
+	if len(data) > maxSize || json.Unmarshal(data, &saved) != nil ||
+		saved.Version != wantedVersion || saved.StoreID != wantedStoreID {
+		return errors.New("persisted policy state version/store identity does not match durable journal")
 	}
-	if saved.Base == nil && saved.Current == nil && string(data) != `{"Version":1}` {
-		return errors.New("invalid uninitialized policy state")
+	if saved.Base == nil && saved.Current == nil {
+		empty := `{"Version":1}`
+		if wantedVersion == 2 {
+			empty = fmt.Sprintf(`{"Version":2,"StoreID":%q}`, wantedStoreID)
+		}
+		if string(data) != empty {
+			return errors.New("invalid uninitialized policy state")
+		}
 	}
 	key, err := os.ReadFile(path + ".key")
 	if err != nil {
@@ -128,7 +144,7 @@ func (s *policyStore) write(current map[string]subscriptionrate.Policy, denied [
 		encoded = append(encoded, hex.EncodeToString(id[:]))
 	}
 	slices.Sort(encoded)
-	if err := json.NewEncoder(f).Encode(savedPolicies{Version: 1, Base: s.base, Current: current, DeniedProfiles: encoded}); err != nil {
+	if err := json.NewEncoder(f).Encode(savedPolicies{Version: s.version, StoreID: s.storeID, Base: s.base, Current: current, DeniedProfiles: encoded}); err != nil {
 		return err
 	}
 	if info, err := f.Stat(); err != nil {
