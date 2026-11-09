@@ -33,7 +33,9 @@ func NewCommander(ctx context.Context, config *Config) (*Commander, error) {
 		if !strings.HasPrefix(config.Listen, "/") || config.Listen == "/" {
 			return nil, stderrors.New("managed Commander must listen on a protected filesystem Unix socket; TCP/abstract/outbound are forbidden")
 		}
-		if _, _, err := elxsecurity.AgentIdentity(); err != nil { return nil, err }
+		if _, _, err := elxsecurity.AgentIdentity(); err != nil {
+			return nil, err
+		}
 	}
 	c := &Commander{
 		tag:    config.Tag,
@@ -73,9 +75,13 @@ func (c *Commander) Start() error {
 	var opts []grpc.ServerOption
 	if elxsecurity.Managed() {
 		uid, gid, err := elxsecurity.AgentIdentity()
-		if err != nil { return err }
+		if err != nil {
+			return err
+		}
 		creds, err := elxsecurity.ServerCredentials(uid, gid)
-		if err != nil { return err }
+		if err != nil {
+			return err
+		}
 		opts = append(opts, grpc.Creds(creds))
 	}
 	c.Lock()
@@ -108,9 +114,13 @@ func (c *Commander) Start() error {
 		var err error
 		if elxsecurity.Managed() {
 			_, gid, err := elxsecurity.AgentIdentity()
-			if err != nil { return err }
+			if err != nil {
+				return err
+			}
 			l, err = elxsecurity.ListenManaged(c.listen, gid)
-			if err != nil { return err }
+			if err != nil {
+				return err
+			}
 		} else {
 			l, err = internet.ListenSystem(context.Background(), addr, nil)
 			if err != nil {
