@@ -224,6 +224,37 @@ func (j *Journal) BootstrapDeniedProfiles(profiles []string) error {
 	return nil
 }
 
+// BootstrapDeniedProfileGenerations imports the EXACT generations independently
+// confirmed by Control for an offline v1 -> v2 migration. The original v1
+// snapshot records only UUIDs and cannot infer their latest generations.
+// Both the set and its generation HWM are immutable after any live lease/op.
+func (j *Journal) BootstrapDeniedProfileGenerations(profiles map[string]uint64) error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.failed {
+		return ErrCorrupt
+	}
+	if len(j.img.Operations) > 0 || len(j.img.Leases) > 0 {
+		return ErrUncertain
+	}
+	next := snapshot(j.img)
+	for profile, generation := range profiles {
+		if !uuidRE.MatchString(profile) || generation == 0 {
+			return ErrInvalid
+		}
+		if next.DeniedProfiles[profile] != 0 {
+			return ErrCollision
+		}
+		next.DeniedProfiles[profile] = generation
+	}
+	if e := j.persist(next); e != nil {
+		j.failed = true
+		return e
+	}
+	j.img = next
+	return nil
+}
+
 // DeniedProfiles is the durable non-revocable tombstone set. A restored
 // snapshot missing any tombstone MUST fail closed before managed admission.
 func (j *Journal) DeniedProfiles() map[string]uint64 {
