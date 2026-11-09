@@ -283,3 +283,35 @@ func TestManagedCorruptJournalCannotStart(t *testing.T) {
 		t.Fatal("corrupt durable operation watermark silently reopened paid node")
 	}
 }
+
+func TestManagedCoreRejectsIndependentProfileTombstoneRollback(t *testing.T) {
+	m, signer, node := newManagedTestPolicyWithJournal(t)
+	defer m.Close()
+	binding := m.leaseBindings["lab"]
+	now := time.Now().Unix()
+	lease := ControlLease{
+		Version: 3, NodeID: node, ResourceID: binding.ResourceID,
+		ExecutorID: binding.ExecutorID, AuthorityGeneration: 8, Subscription: "lab",
+		Sequence: 20, NotBefore: now, NotAfter: now + 15,
+		CeilingUp: 100, CeilingDown: 200,
+	}
+	lease.Signature = ed25519.Sign(signer, ControlLeaseTranscript(lease))
+	witness := testStoreWitness(m, lease, signer)
+	witness.TombstonesSHA256 = "0000000000000000000000000000000000000000000000000000000000000000"
+	witness.Signature = ed25519.Sign(signer, StoreWitnessTranscript(witness))
+	if err := m.RenewControlLeaseWithWitness(lease, witness); err == nil {
+		t.Fatal("core accepted a validly signed Control witness without matching denial HWM")
+	}
+	profile := uuid.NewString()
+	if err := m.opJournal.RecordDeniedProfile(profile.String(), 10); err != nil {
+		t.Fatal(err)
+	}
+	// A previously valid Control witness for the original empty denial
+	// set cannot admit a core whose journal now contains another revocation.
+	witness = testStoreWitness(m, lease, signer)
+	witness.TombstonesSHA256 = "eab4b2179450179f4800ff300bcc16116728c6dd60bf5ea2e10020b9ef0f5693"
+	witness.Signature = ed25519.Sign(signer, StoreWitnessTranscript(witness))
+	if err := m.RenewControlLeaseWithWitness(lease, witness); err == nil {
+		t.Fatal("valid signature with stale profile deny set admitted paid traffic")
+	}
+}
