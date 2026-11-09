@@ -35,3 +35,43 @@
 | Both files restored together | Local check cannot detect rollback | Require independent Control high-water witness |
 
 **Next action:** implement the managed mutation adapter and versioned policy migration, then prove exact caller/application semantics. This stage remains `IN_PROGRESS`; Stage 4 must not begin.
+
+## Live implementation checkpoint: managed mutation adapter (same stage)
+
+**New core code:** `app/policy/runtime.go` computes `ManagedUpdateHash` over the exact versioned `elx-managed-update-v1` transcript; `UpdateManagedSubscription` validates trusted Control node/executor/resource, generation, CAS and payload hash. For an explicitly opted-in journal (`ELXRAY_OP_JOURNAL`), anonymous legacy `UpdateSubscription` cannot mutate a managed paid policy. An accepted mutation persists `INTENT`, writes the policy snapshot, applies the live limiter and then persists `APPLIED`. The same operation is idempotent, a new payload with the same ID conflicts, and a crash between writes makes admission fail closed pending reconciliation.
+
+**Local Commander wire:** legacy `SubscriptionService/SetSubscription` protobuf numbers remain unchanged. The authenticated Control agent now sends one each of `elx-op-id`, `elx-op-node`, `elx-op-resource`, `elx-op-executor`, `elx-op-generation` (uint64 decimal string) and `elx-op-hash` (lowercase SHA-256 hex). Core independently verifies the digest. These fields are authenticated by Linux Unix peer credentials and tied to the Control-signed v3 lease ceiling; user-supplied network metadata is not trusted.
+
+**Signed receipt:** `GetSubscription` accepts `elx-op-readback-id` plus a canonical 32-byte hex `elx-op-readback-challenge`; only a durable `APPLIED` journal entry matching the CURRENT snapshot produces `elx-operation-receipt-bin`. This JSON envelope includes `version=1`, `operationId`, `payloadSha256`, `nodeId`, `executorId`, `resourceId`, `authorityGeneration`, `revision`, `coreIncarnation`, `storeId`, `completedUnixNanos`, and an Ed25519 `signature` (base64 in JSON). The exact signature transcript is:
+
+```text
+elx-applied-operation-v1
+<hex of UTF-8 ASCII challenge>
+<operationId>
+<payloadSha256>
+<nodeId>
+<executorId>
+<resourceId>
+<authorityGeneration>
+<revision>
+<coreIncarnation>
+<storeId>
+<completedUnixNanos>
+```
+
+No trailing newline; all UUIDs canonical lowercase. Both repos pin the same golden SHA-256 `d354a37354ec0d68fa97f37352cb8cc456897832947772eee61d8ed81a47b8f7` and mutation-body hash `4255081ce063d5fc3a34d2099448e626e4202b80197d47d26b200ec2d19193bd`. Control's `policytransport.Confirm` now requires the original signed applied POLICY proof **and** this second pinned signed operation receipt before `journal.ConfirmApplied`, for every v3 executor-bound job. Policy readback alone no longer suffices in this path.
+
+**Versioned policy snapshots:** when `ELXRAY_OP_JOURNAL` is active, core first opens a pre-provisioned journal with its paired `.anchor`, then requires `savedPolicies.Version=2` with the exact matching `StoreID`. A managed v1 snapshot, missing journal/anchor, different StoreID, stale baseline revision, stale authority or unresolved INTENT refuses to boot. Standalone and stage-2 transitional managed nodes without the new journal still use legacy v1. **The migration is not automatic**: provision/seed resource baselines only after independent Control approval. Never rewrite a live v1 state file by hand.
+
+**Lease persistence:** an already verified v3 lease must durably advance resource-specific sequence, epoch and expiration HWM before admission; a storage error closes data-plane flows and fails the manager. On restart, the HWM rejects the previously accepted signed sequence. `common/subscriptionrate/limits.go` discards initial/dormant burst credit on managed boot and new lease admission, reducing double credit on restart.
+
+### Remaining release-blocking work (Stage 3 not DONE)
+
+1. Implement a **Control-authorized, audited offline v1 → v2 bootstrap/migration tool**. The current library primitives are not a migration procedure: operator-supplied baselines alone are not cryptographic proof of Control's latest epoch/revision.
+2. Add a durable **remote Control witness** for `storeId`, monotonic operation HWM/revision and acknowledged core incarnation. Hash-linked image+anchor detects *single-file* rollback but **not simultaneous rollback of both files**. Compare witness before allowing a recovered grant/owner.
+3. Handle unresolved INTENT after restart via explicit authenticated Control reconciliation rather than leaving the node indefinitely NOT_READY. No unilateral retry or automatic state reset is allowed.
+4. Add full crash/partial-sync/disk-full and two-executor integration tests including real PostgreSQL and multi-process managed Unix peer credentials. Some target test suites still exercise legacy mode; do not promote them to Stage-3 acceptance.
+5. Full Go 1.27 `gofumpt`, `go test ./...`, race, vet and cross-repo CI are **NOT RUN on the latest PR HEAD** because GitHub Actions is queued; local standard-library journal prototype tests do not replace these checks.
+6. On-disk core operation receipt needs a separately pinned remote store incarnation for crash/rollback-proof handoffs. Stage 3 scope must not be confused with future Stage 4 dynamic provisioning and Stage 7 owner fences.
+
+**Deployment:** These are *draft feature branches only*. Do not enable `ELXRAY_OP_JOURNAL` on production paid nodes until a verified migration has completed and both PRs pass their release gates. Stage 4 has not started.
