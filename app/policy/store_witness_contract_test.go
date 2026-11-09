@@ -45,3 +45,16 @@ func TestCoreStoreWitnessGoldenMatchesControl(t *testing.T) {
 		}
 	}
 }
+
+func TestLocalDeniedProfileHWMDigestMatchesControl(t *testing.T) {
+	if got := deniedProfileDigest(nil); got != "eab4b2179450179f4800ff300bcc16116728c6dd60bf5ea2e10020b9ef0f5693" {
+		t.Fatalf("empty denied profile HWM differs from Control: %s", got)
+	}
+	profile := "77777777-7777-4777-8777-777777777777"
+	if got := deniedProfileDigest(map[string]uint64{profile: 7}); got != "4d9936f70da34e7684370bfad1a670bff318f24375aa34688f80a5720fa2a456" {
+		t.Fatalf("revoked profile HWM differs from Control: %s", got)
+	}
+	if deniedProfileDigest(map[string]uint64{profile: 1}) == deniedProfileDigest(map[string]uint64{profile: 7}) {
+		t.Fatal("different profile generations produced the same HWM")
+	}
+}
