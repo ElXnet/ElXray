@@ -96,3 +96,41 @@ func TestNoImplicitInitializeAndInvalidExecutor(t *testing.T){
  c:=sample();c.ExecutorID="not-a-uuid"
  if _,e=j.Begin(c);!errors.Is(e,ErrInvalid){t.Fatalf("malformed executor accepted: %v",e)}
 }
+
+func TestDurableLeaseHighWaterSurvivesRestart(t *testing.T) {
+ j,path:=fresh(t)
+ if e:=j.RecordVerifiedLease(testResource,9,100,1700000015);e!=nil {t.Fatal(e)}
+ if e:=j.RecordVerifiedLease(testResource,9,100,1700000015);!errors.Is(e,ErrStale){t.Fatalf("replayed signed lease: %v",e)}
+ if e:=j.RecordVerifiedLease(testResource,8,101,1700000016);!errors.Is(e,ErrStale){t.Fatalf("old authority accepted: %v",e)}
+ rebooted,e:=Open(path);if e!=nil {t.Fatal(e)}
+ if w,ok:=rebooted.Lease(testResource);!ok||w.AuthorityGeneration!=9||w.Sequence!=100 {
+  t.Fatalf("durable lease watermark lost: %+v %v",w,ok)
+ }
+ if e:=rebooted.RecordVerifiedLease(testResource,9,99,1700000018);!errors.Is(e,ErrStale) {
+  t.Fatalf("old signed sequence accepted after restart: %v",e)
+ }
+ if e:=rebooted.RecordVerifiedLease(testResource,10,101,1700000020);e!=nil {t.Fatal(e)}
+ if w,_:=rebooted.Lease(testResource);w.AuthorityGeneration!=10||w.Sequence!=101{t.Fatal(w)}
+}
+
+func TestLeaseHighWaterCrashNeverReopensUnknownAuthority(t *testing.T) {
+ for _,phase:=range []string{"before-image","after-rename-image","before-anchor","after-rename-anchor"} {
+  t.Run(phase,func(t *testing.T) {
+   j,path:=fresh(t)
+   j.hook=func(point string)error{
+    if point==phase{return errors.New("fault injected at "+phase)}
+    return nil
+   }
+   if e:=j.RecordVerifiedLease(testResource,9,100,1700000015);e==nil {t.Fatal("fault was ignored")}
+   if e:=j.RecordVerifiedLease(testResource,9,101,1700000016);!errors.Is(e,ErrCorrupt) {t.Fatalf("failed journal accepted signed lease: %v",e)}
+   reopened,e:=Open(path)
+   if phase=="after-rename-image"||phase=="before-anchor" {
+    if !errors.Is(e,ErrCorrupt){t.Fatalf("torn lease HWM reopened: %v",e)}
+   } else if e==nil {
+    if w,ok:=reopened.Lease(testResource);ok&&w.Sequence==100 {
+     t.Fatal("lease unexpectedly acknowledged before fsync anchor")
+    }
+   }
+  })
+ }
+}
