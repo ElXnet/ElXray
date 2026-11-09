@@ -56,12 +56,13 @@ func (m *Instance) UpdateSubscription(u subscriptionrate.Update) (subscriptionra
 				return subscriptionrate.Policy{}, subscriptionrate.ErrUnauthorized
 			}
 			if requiresGrant {
+				binding, bound := m.leaseBindings[u.ID]
 				t, ok := m.leaseAccepted[u.ID]
 				deadline, active := limits.ActiveLeaseDeadline()
 				if !ok || !active || !deadline.After(time.Now().Add(time.Second)) ||
-					t.Version != 3 || t.NodeID != m.leaseNodeID ||
-					t.ResourceID != m.leaseResourceID || t.ExecutorID != m.leaseExecutorID ||
-					t.AuthorityGeneration < m.leaseMinGeneration ||
+					!bound || t.Version != 3 || t.NodeID != m.leaseNodeID ||
+					t.ResourceID != binding.ResourceID || t.ExecutorID != binding.ExecutorID ||
+					t.AuthorityGeneration < binding.MinAuthorityGeneration ||
 					t.AuthorityGeneration != m.leaseGeneration[u.ID] ||
 					t.Subscription != u.ID || t.Sequence <= 0 ||
 					m.leaseSeq[u.ID] != t.Sequence || t.NotAfter <= time.Now().Unix()+1 ||
