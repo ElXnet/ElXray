@@ -146,6 +146,15 @@ func New(ctx context.Context, config *Config) (*Instance, error) {
 		}
 		m.subscriptionPolicies[id] = subscriptionrate.Policy{ID: id, Emails: slices.Clone(p.Emails), UplinkBps: p.UplinkBps, DownlinkBps: p.DownlinkBps, Revision: revision, Disabled: p.Disabled}
 	}
+	// Open the explicitly provisioned managed journal BEFORE reading policy
+	// snapshots, so the version-2 snapshot can be bound to its immutable storeId.
+	// Missing/torn/ambiguous journal must never initialize as empty state.
+	if mode == "managed" && os.Getenv("ELXRAY_OP_JOURNAL") != "" {
+		journal, err := elxjournal.Open(os.Getenv("ELXRAY_OP_JOURNAL"))
+		if err != nil { return nil, err }
+		if journal.HasPending() { return nil, elxjournal.ErrUncertain }
+		m.opJournal = journal
+	}
 	if path := os.Getenv("ELXRAY_POLICY_STATE"); path != "" {
 		if err := m.restorePolicies(path); err != nil {
 			return nil, err
@@ -159,33 +168,17 @@ func New(ctx context.Context, config *Config) (*Instance, error) {
 			m.subscriptions[strings.ToLower(p.Emails[0])].Update(p.UplinkBps, p.DownlinkBps, p.Disabled)
 		}
 	}
-	// Stage-3 durable journal is an explicit, provisioned managed-state
-	// extension. It never initializes itself from a missing file or from
-	// a stale savedPolicies v1 snapshot. During migration, existing managed
-	// nodes without ELXRAY_OP_JOURNAL keep their stage-2 fail-closed lease
-	// semantics; deployment cannot advertise durable-ops capability yet.
-	if mode == "managed" && os.Getenv("ELXRAY_OP_JOURNAL") != "" {
-		journal, err := elxjournal.Open(os.Getenv("ELXRAY_OP_JOURNAL"))
-		if err != nil {
-			_ = m.Close()
-			return nil, err
-		}
-		if journal.HasPending() {
-			_ = m.Close()
-			return nil, elxjournal.ErrUncertain
-		}
-		m.opJournal = journal
+	if m.opJournal != nil {
 		for id, binding := range m.leaseBindings {
-			// A state recovered from an older JSON snapshot is not authority.
-			// Its core revision must match the explicitly Control-reconciled
-			// journal baseline, or the managed node refuses to start.
-			revision, generation, ready := journal.ResourceState(binding.ResourceID.String())
+			// Recovered policy revision and trusted Control-reconciled journal
+			// baseline MUST agree before managed traffic may ever be admitted.
+			revision, generation, ready := m.opJournal.ResourceState(binding.ResourceID.String())
 			policy := m.subscriptionPolicies[id]
 			if !ready || revision != policy.Revision || generation < binding.MinAuthorityGeneration {
 				_ = m.Close()
 				return nil, elxjournal.ErrStale
 			}
-			if saved, ok := journal.Lease(binding.ResourceID.String()); ok {
+			if saved, ok := m.opJournal.Lease(binding.ResourceID.String()); ok {
 				if saved.AuthorityGeneration < binding.MinAuthorityGeneration {
 					_ = m.Close()
 					return nil, elxjournal.ErrStale
