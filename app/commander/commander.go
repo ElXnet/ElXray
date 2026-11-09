@@ -2,7 +2,7 @@ package commander
 
 import (
 	"context"
-	"errors"
+	stderrors "errors"
 	"net"
 	"strings"
 	"sync"
@@ -31,7 +31,7 @@ type Commander struct {
 func NewCommander(ctx context.Context, config *Config) (*Commander, error) {
 	if elxsecurity.Managed() {
 		if !strings.HasPrefix(config.Listen, "/") || config.Listen == "/" {
-			return nil, errors.New("managed Commander must listen on a protected filesystem Unix socket; TCP/abstract/outbound are forbidden")
+			return nil, stderrors.New("managed Commander must listen on a protected filesystem Unix socket; TCP/abstract/outbound are forbidden")
 		}
 		if _, _, err := elxsecurity.AgentIdentity(); err != nil { return nil, err }
 	}
