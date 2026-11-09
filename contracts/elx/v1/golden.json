@@ -1,0 +1,162 @@
+{
+  "schemaVersion": "elx-fixtures-1",
+  "sourceCoreCommit": "8e4dbed76bef9755395945a4b7e2982d138ad62d",
+  "sourceControlCommit": "3e8891872f172eaeb92696c1527fd25ab158fa06",
+  "canonical": "lower-case hex exact unsigned transcript; Ed25519 signature excluded; signed as exactly these octets",
+  "vectors": [
+    {
+      "id": "control-lease-v2",
+      "source": "app/policy/lease.go ControlLeaseTranscript",
+      "transcriptHex": "656c782d636f6e74726f6c2d6c656173652d76320a31313131313131312d313131312d343131312d383131312d3131313131313131313131310a656e7469746c656d656e742d410a370a313730303030303030300a313730303030303031350a31323530303030300a36323530303030",
+      "sha256": "3633f3f8e7d30c99301829407452a9ad7722ae7736fa621434f62ee1ed78528c"
+    },
+    {
+      "id": "policy-v1",
+      "source": "app/policy/persistence.go DurablePolicyProof",
+      "transcriptHex": "656c782d706f6c6963792d76310a333033303331333133323332333333333334333433353335333633363337333733383338333933393631363136323632363336333634363436353635363636360a36353665373436393734366336353664363536653734326434310a390a31323530303030300a363235303030300a66616c7365",
+      "sha256": "c4ce69d5515dfeb00e671aa6fdbf72da2a363b41016196649adcdec45579afbc"
+    },
+    {
+      "id": "session-fence-v2",
+      "source": "app/policy/profile_fence.go DrainVLESSProfile",
+      "transcriptHex": "656c782d73657373696f6e2d66656e63652d76320011111111111141118111111111111111000000000000000c222222222222422282222222222222223333333333334333833333333333333344444444444444448444444444444444",
+      "sha256": "f1da1fa5c6222ce704af511912ad76c578dfbe5e5dcb26f55f170f151813fa0f"
+    },
+    {
+      "id": "rate-barrier-v1",
+      "source": "app/policy/rate_barrier.go ProveRateBarrier",
+      "transcriptHex": "656c782d726174652d626172726965722d76310a31313131313131312d313131312d343131312d383131312d3131313131313131313131310a32323232323232322d323232322d343232322d383232322d3232323232323232323232320a33333333333333332d333333332d343333332d383333332d3333333333333333333333330a34343434343434342d343434342d343434342d383434342d3434343434343434343434340a370a31300a31323530303030300a36323530303030",
+      "sha256": "ec4e42a3749b7e3acec2b142267ee4354f2dc4d95a86fa380358015839e29c0d"
+    },
+    {
+      "id": "usage-v1",
+      "source": "app/policy/usage.go SignedUsage",
+      "transcriptHex": "656c782d75736167652d76310a333033303331333133323332333333333334333433353335333633363337333733383338333933393631363136323632363336333634363436353635363636360a36353665373436393734366336353664363536653734326434310a333333333333333333333333343333333833333333333333333333333333333330303030303030303030303030303133313739373963666533363261303030303030303030303030303030303030363430303030303030303030303030306338",
+      "sha256": "3780bcdc89fa35b654b26543e189b7167a350fd9a8aabbca15daf4f2e81dc20b"
+    },
+    {
+      "id": "pressure-v1",
+      "source": "app/policy/pressure.go SignedPressure",
+      "transcriptHex": "656c782d70726573737572652d76310a333033303331333133323332333333333334333433353335333633363337333733383338333933393631363136323632363336333634363436353635363636360a36353665373436393734366336353664363536653734326434310a333333333333333333333333343333333833333333333333333333333333333330303030303030303030303030303134313739373963666533363261303030303030303030303030303030303030303930303030303030303030626562633230303030303030303030303566356531303030303030303030303030303030363430303030303030303030303030303032303030303030303030303030306661303030303030303030303030303030303030303030303030303030303030306338303030303030303030303030303030333030303030303030303030303133383830303030303030303030303030303031",
+      "sha256": "66b8f6e83e20269c4d305fcc8b62b946e80773f6b83105af180127d6bd7fdcb1"
+    },
+    {
+      "id": "lease-accept-v1",
+      "source": "app/policy/lease_acceptance.go SignedLeaseAcceptance",
+      "transcriptHex": "656c782d6c656173652d6163636570742d76310a333033303331333133323332333333333334333433353335333633363337333733383338333933393631363136323632363336333634363436353635363636360a36353665373436393734366336353664363536653734326434310a3333333333333333333333333433333338333333333333333333333333333333323232323232323232323232343232323832323232323232323232323232323230303030303030303030303030303037303030303030303036353533663130663030303030303030303062656263323030303030303030303030356635653130303030303030303030303030303030393030303030303030303062656263323030303030303030303030356635653130",
+      "sha256": "1c042a242d02208789e9d5d05cedc959a6c0fbec695715c3cd20e347bb2be207"
+    },
+    {
+      "id": "control-device-reserve-v1",
+      "source": "ElX-control/internal/elxcontrol/session/proof.go ProofTranscript",
+      "transcriptHex": "656c782d6465766963652d726573657276652d763100000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f111111111111411181111111111111112222222222224222822222222222222233333333333343338333333333333333444444444444444484444444444444445555555555554555855555555555555566666666666646668666666666666666000000000000000422222222222222222222222222222222222222222222222222222222222222223333333333333333333333333333333333333333333333333333333333333333",
+      "sha256": "9c63f487089dbd39872d681ab2dd0d7bc8a96e6165424bb166479bf226d9142a"
+    },
+    {
+      "id": "managed-grant-v1-target",
+      "source": "docs/elx/adr/0001-control-core-managed-contract.md TARGET only",
+      "transcriptHex": "656c782d6d616e616765642d6772616e742d7631001111111111114111811111111111111122222222222242228222222222222222333333333333433383333333333333334444444444444444844444444444444400000000000000070000000000000009000000006553f100000000006553f10f0000000000bebc2000000000005f5e1000",
+      "sha256": "234456e16b5ed3f69ad7aab88e483d939da49e482607e6b953a10410763b0ecb"
+    }
+  ],
+  "negative": [
+    {
+      "id": "wrong-node-lease",
+      "source": "control-lease-v2",
+      "mutation": "replace first node ID with 22222222-2222-4222-8222-222222222222",
+      "expected": "DENY",
+      "status": "target_negative_test_not_yet_executed"
+    },
+    {
+      "id": "wrong-profile-fence",
+      "source": "session-fence-v2",
+      "mutation": "replace profile UUID with 55555555-5555-4555-8555-555555555555",
+      "expected": "DENY",
+      "status": "target_negative_test_not_yet_executed"
+    },
+    {
+      "id": "wrong-owner-fence",
+      "source": "session-fence-v2",
+      "mutation": "replace owner UUID with 66666666-6666-4666-8666-666666666666",
+      "expected": "DENY",
+      "status": "target_negative_test_not_yet_executed"
+    },
+    {
+      "id": "wrong-node-rate",
+      "source": "rate-barrier-v1",
+      "mutation": "replace node UUID with 66666666-6666-4666-8666-666666666666",
+      "expected": "DENY",
+      "status": "target_negative_test_not_yet_executed"
+    },
+    {
+      "id": "wrong-challenge-usage",
+      "source": "usage-v1",
+      "mutation": "change ASCII challenge 00112233445566778899aabbccddeeff to ffeeddccbbaa99887766554433221100",
+      "expected": "DENY",
+      "status": "target_negative_test_not_yet_executed"
+    },
+    {
+      "id": "wrong-key-generation",
+      "source": "control-device-reserve-v1",
+      "mutation": "change last UInt64 key generation from 4 to 5",
+      "expected": "DENY",
+      "status": "target_negative_test_not_yet_executed"
+    },
+    {
+      "id": "cloned-profile-detached-flow",
+      "source": "control-device-reserve-v1",
+      "mutation": "change flowBinding 0x33*32 to 0x44*32",
+      "expected": "DENY VPN payload; external HTTPS proof insufficient",
+      "status": "target_negative_test_not_yet_executed"
+    },
+    {
+      "id": "stale-authority",
+      "source": null,
+      "mutation": "authorityGeneration below durable HWM",
+      "expected": "FAILED_PRECONDITION",
+      "status": "target_negative_test_not_yet_executed"
+    },
+    {
+      "id": "same-operation-different-payload",
+      "source": null,
+      "mutation": "same operation UUID, new payload SHA256",
+      "expected": "ALREADY_EXISTS",
+      "status": "target_negative_test_not_yet_executed"
+    },
+    {
+      "id": "timeout-after-apply",
+      "source": null,
+      "mutation": "deadline after durable write before client receipt",
+      "expected": "UNKNOWN; read operation, never assume rollback",
+      "status": "target_negative_test_not_yet_executed"
+    },
+    {
+      "id": "untrusted-local-caller",
+      "source": null,
+      "mutation": "local TCP process without agent OS identity",
+      "expected": "PERMISSION_DENIED",
+      "status": "target_negative_test_not_yet_executed"
+    },
+    {
+      "id": "managed-missing-boot-flags",
+      "source": null,
+      "mutation": "managed expected, ELXRAY_REQUIRE_CONTROL_LEASE absent",
+      "expected": "NOT_READY",
+      "status": "target_negative_test_not_yet_executed"
+    },
+    {
+      "id": "raise-above-ceiling-between-renewals",
+      "source": null,
+      "mutation": "set rate > signed lease ceiling while active lease",
+      "expected": "PERMISSION_DENIED",
+      "status": "target_negative_test_not_yet_executed"
+    },
+    {
+      "id": "first-payload-before-admission",
+      "source": null,
+      "mutation": "VLESS profile cloned; no verified handshake binding",
+      "expected": "DENY",
+      "status": "target_negative_test_not_yet_executed"
+    }
+  ]
+}
