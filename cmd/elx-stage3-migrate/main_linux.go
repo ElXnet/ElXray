@@ -56,6 +56,7 @@ func run(args []string) error {
 	path := fs.String("state", "", "ABSOLUTE path to stopped core policy snapshot")
 	journalPath := fs.String("journal", "", "ABSOLUTE path to new store ledger")
 	bindingsPath := fs.String("bindings", "", "protected trusted authority binding file")
+	denialGenerationsPath := fs.String("denied-generations", "", "protected Control-confirmed JSON profile UUID to generation mapping")
 	store := fs.String("store", "", "Control-registered immutable store UUID")
 	sha := fs.String("expected-sha256", "", "SHA-256 of independently approved v1 state file")
 	approve := fs.String("approve", "", "exact OFFLINE_CONTROL_APPROVED")
@@ -149,6 +150,24 @@ func run(args []string) error {
 			denies = append(denies, id.String())
 		}
 	}
+	denialGenerations := make(map[string]uint64)
+	if len(denies) > 0 {
+		if !filepath.IsAbs(*denialGenerationsPath) {
+			return errors.New("revoked profiles require a Control-confirmed generation manifest")
+		}
+		denyRaw, err := readPrivate(*denialGenerationsPath)
+		if err != nil {
+			return err
+		}
+		if json.Unmarshal(denyRaw, &denialGenerations) != nil || len(denialGenerations) != len(denies) {
+			return errors.New("profile-denial generations disagree with v1 denied profile set")
+		}
+		for _, id := range denies {
+			if denialGenerations[id] == 0 {
+				return fmt.Errorf("missing Control generation for denied profile %s", id)
+			}
+		}
+	}
 	// Create a write-once, fsynced independent backup before any mutations.
 	backup := *path + ".stage3-v1.backup"
 	f, e := os.OpenFile(backup, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
@@ -190,7 +209,7 @@ func run(args []string) error {
 			return e
 		}
 	}
-	if e = j.BootstrapDeniedProfiles(denies); e != nil {
+	if e = j.BootstrapDeniedProfileGenerations(denialGenerations); e != nil {
 		return e
 	}
 	obj["Version"] = json.RawMessage("2")
