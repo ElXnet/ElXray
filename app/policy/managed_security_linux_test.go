@@ -21,6 +21,14 @@ import (
 )
 
 func newManagedTestPolicy(t *testing.T) (*Instance, ed25519.PrivateKey, uuid.UUID) {
+	return buildManagedTestPolicy(t, false)
+}
+
+func newManagedTestPolicyWithJournal(t *testing.T) (*Instance, ed25519.PrivateKey, uuid.UUID) {
+	return buildManagedTestPolicy(t, true)
+}
+
+func buildManagedTestPolicy(t *testing.T, durable bool) (*Instance, ed25519.PrivateKey, uuid.UUID) {
 	t.Helper()
 	pub, signer, err := ed25519.GenerateKey(nil)
 	if err != nil {
@@ -42,10 +50,14 @@ func newManagedTestPolicy(t *testing.T) (*Instance, ed25519.PrivateKey, uuid.UUI
 	t.Setenv("ELXRAY_REQUIRE_CONTROL_LEASE", "1")
 	t.Setenv("ELXRAY_POLICY_STATE", path)
 	journalPath := path + ".ops"
-	if err := elxjournal.Provision(journalPath, uuid.NewString()); err != nil {
-		t.Fatal(err)
+	if durable {
+		if err := elxjournal.Provision(journalPath, uuid.NewString()); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("ELXRAY_OP_JOURNAL", journalPath)
+	} else {
+		t.Setenv("ELXRAY_OP_JOURNAL", "")
 	}
-	t.Setenv("ELXRAY_OP_JOURNAL", journalPath)
 	t.Setenv("ELXRAY_CONTROL_LEASE_PUBLIC_KEY", base64.StdEncoding.EncodeToString(pub))
 	t.Setenv("ELXRAY_CONTROL_LEASE_NODE_UUID", node.String())
 	resource := uuid.New()
@@ -61,6 +73,15 @@ func newManagedTestPolicy(t *testing.T) (*Instance, ed25519.PrivateKey, uuid.UUI
 		t.Fatal(err)
 	}
 	t.Setenv("ELXRAY_CONTROL_LEASE_BINDINGS_FILE", bindings)
+	if durable {
+		j, err := elxjournal.Open(journalPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := j.BootstrapResource(resource.String(), 1, 8); err != nil {
+			t.Fatal(err)
+		}
+	}
 	t.Setenv("ELXRAY_AGENT_UID", strconv.Itoa(os.Geteuid()+42))
 	t.Setenv("ELXRAY_AGENT_GID", "65534")
 	m, err := New(context.Background(), &Config{RequireSubscription: true, Subscriptions: map[string]*SubscriptionPolicy{
@@ -185,7 +206,7 @@ func TestManagedStartupRejectsUnlimitedEvenWithValidIdentity(t *testing.T) {
 }
 
 func TestManagedLeaseHighWaterIsDurableAcrossRestart(t *testing.T) {
-	m, signer, node := newManagedTestPolicy(t)
+	m, signer, node := newManagedTestPolicyWithJournal(t)
 	binding := m.leaseBindings["lab"]
 	now := time.Now().Unix()
 	lease := ControlLease{
@@ -221,7 +242,7 @@ func TestManagedLeaseHighWaterIsDurableAcrossRestart(t *testing.T) {
 }
 
 func TestManagedCorruptJournalCannotStart(t *testing.T) {
-	m, _, _ := newManagedTestPolicy(t)
+	m, _, _ := newManagedTestPolicyWithJournal(t)
 	if err := m.Close(); err != nil {
 		t.Fatal(err)
 	}
