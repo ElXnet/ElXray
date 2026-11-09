@@ -39,32 +39,32 @@ def be(*args: int) -> bytes:
 
 def transcript(name: str) -> bytes:
     if name == "control-lease-v2":
-        return (f"elx-control-lease-v2\\n{IDS[0]}\\n{SUB}\\n7\\n1700000000\\n1700000015\\n12500000\\n6250000").encode()
+        return (f"elx-control-lease-v2\n{IDS[0]}\n{SUB}\n7\n1700000000\n1700000015\n12500000\n6250000").encode()
     if name == "policy-v1":
-        return (f"elx-policy-v1\\n{CH.encode().hex()}\\n{SUB.encode().hex()}\\n9\\n12500000\\n6250000\\nfalse").encode()
+        return (f"elx-policy-v1\n{CH.encode().hex()}\n{SUB.encode().hex()}\n9\n12500000\n6250000\nfalse").encode()
     if name == "session-fence-v2":
-        return b"elx-session-fence-v2\\x00" + uid(0) + be(12) + uid(1) + uid(2) + uid(3)
+        return b"elx-session-fence-v2\x00" + uid(0) + be(12) + uid(1) + uid(2) + uid(3)
     if name == "rate-barrier-v1":
-        return (f"elx-rate-barrier-v1\\n{IDS[0]}\\n{IDS[1]}\\n{IDS[2]}\\n{IDS[3]}\\n7\\n10\\n12500000\\n6250000").encode()
+        return (f"elx-rate-barrier-v1\n{IDS[0]}\n{IDS[1]}\n{IDS[2]}\n{IDS[3]}\n7\n10\n12500000\n6250000").encode()
     if name == "usage-v1":
         body = uid(2) + be(19, 1700000000000000000, 100, 200)
-        return (f"elx-usage-v1\\n{CH.encode().hex()}\\n{SUB.encode().hex()}\\n{body.hex()}").encode()
+        return (f"elx-usage-v1\n{CH.encode().hex()}\n{SUB.encode().hex()}\n{body.hex()}").encode()
     if name == "pressure-v1":
         body = uid(2) + be(20, 1700000000000000000, 9, 12500000, 6250000,
                            100, 2, 4000, 0, 200, 3, 5000, 1)
-        return (f"elx-pressure-v1\\n{CH.encode().hex()}\\n{SUB.encode().hex()}\\n{body.hex()}").encode()
+        return (f"elx-pressure-v1\n{CH.encode().hex()}\n{SUB.encode().hex()}\n{body.hex()}").encode()
     if name == "lease-accept-v1":
         body = uid(2) + uid(1) + be(7, 1700000015, 12500000, 6250000,
                                     9, 12500000, 6250000)
-        return (f"elx-lease-accept-v1\\n{CH.encode().hex()}\\n{SUB.encode().hex()}\\n{body.hex()}").encode()
+        return (f"elx-lease-accept-v1\n{CH.encode().hex()}\n{SUB.encode().hex()}\n{body.hex()}").encode()
     if name == "control-device-reserve-v1":
-        return (b"elx-device-reserve-v1\\x00" + bytes(range(32))
+        return (b"elx-device-reserve-v1\x00" + bytes(range(32))
                 + b"".join(uid(i) for i in range(6)) + be(4)
                 + bytes([0x22])*32 + bytes([0x33])*32)
     if name == "managed-grant-v1-target":
-        return (b"elx-managed-grant-v1\\x00"
+        return (b"elx-managed-grant-v1\x00"
                 + b"".join(uid(i) for i in range(4))
-                + be(7, 9, 1700000000, 1700000015, 12500000, 6250000) + b"\\x00")
+                + be(7, 9, 1700000000, 1700000015, 12500000, 6250000) + b"\x00")
     raise AssertionError(f"unknown transcript {name}")
 
 class Contracts(unittest.TestCase):
@@ -98,9 +98,9 @@ class Contracts(unittest.TestCase):
     def test_target_proto_numbers_unique_in_each_message(self):
         # Lightweight syntax drift check, not a substitute for protoc validation.
         raw = TARGET_PROTO.read_text(encoding="utf-8")
-        for match in re.finditer(r"message\\s+(\\w+)\\s*\\{([^{}]*)\\}", raw, re.S):
+        for match in re.finditer(r"message\s+(\w+)\s*\{([^{}]*)\}", raw, re.S):
             msg, body = match.groups()
-            fields = re.findall(r"=\\s*(\\d+)\\s*;", body)
+            fields = re.findall(r"=\s*(\d+)\s*;", body)
             self.assertEqual(len(fields), len(set(fields)), f"{msg}: repeated field number")
 
     def test_required_negative_vectors_and_no_claimed_runtime_pass(self):
@@ -119,7 +119,7 @@ class Contracts(unittest.TestCase):
         # Explicit integrity test: even a one-byte mutation MUST change digest.
         for vector in self.data["vectors"]:
             raw = transcript(vector["id"])
-            self.assertNotEqual(hashlib.sha256(raw+b"\\x00").hexdigest(), vector["sha256"])
+            self.assertNotEqual(hashlib.sha256(raw+b"\x00").hexdigest(), vector["sha256"])
             if raw:
                 flipped = bytes([raw[0] ^ 1]) + raw[1:]
                 self.assertNotEqual(hashlib.sha256(flipped).hexdigest(), vector["sha256"])
