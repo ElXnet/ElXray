@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -40,7 +41,12 @@ func buildManagedTestPolicy(t *testing.T, durable bool) (*Instance, ed25519.Priv
 	}
 	node := uuid.New()
 	path := filepath.Join(t.TempDir(), "state.json")
-	if err := os.WriteFile(path, []byte(`{"Version":1}`), 0o600); err != nil {
+	storeID := uuid.NewString()
+	manifest := []byte(`{"Version":1}`)
+	if durable {
+		manifest = []byte(fmt.Sprintf(`{"Version":2,"StoreID":%q}`, storeID))
+	}
+	if err := os.WriteFile(path, manifest, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(path+".key", []byte(hex.EncodeToString(coreKey.Seed())), 0o600); err != nil {
@@ -51,7 +57,7 @@ func buildManagedTestPolicy(t *testing.T, durable bool) (*Instance, ed25519.Priv
 	t.Setenv("ELXRAY_POLICY_STATE", path)
 	journalPath := path + ".ops"
 	if durable {
-		if err := elxjournal.Provision(journalPath, uuid.NewString()); err != nil {
+		if err := elxjournal.Provision(journalPath, storeID); err != nil {
 			t.Fatal(err)
 		}
 		t.Setenv("ELXRAY_OP_JOURNAL", journalPath)
