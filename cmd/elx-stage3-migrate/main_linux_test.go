@@ -70,6 +70,22 @@ func TestOfflineManagedSnapshotMigrationRetainsBindingsAndDenials(t *testing.T) 
 	if _, e = os.Stat(journalPath); !os.IsNotExist(e) {
 		t.Fatal("denied migration created journal")
 	}
+	// A v1 snapshot contains only denied profile UUIDs, not generations.
+	// Offline migration without the independently reconciled Control
+	// generation manifest must refuse to provision anything.
+	missingManifest := append([]string(nil), args...)
+	for i := 0; i+1 < len(missingManifest); i++ {
+		if missingManifest[i] == "-denied-generations" {
+			missingManifest = append(missingManifest[:i], missingManifest[i+2:]...)
+			break
+		}
+	}
+	if e = run(missingManifest); e == nil {
+		t.Fatal("denied profiles migrated without Control generation baselines")
+	}
+	if _, e = os.Stat(journalPath); !os.IsNotExist(e) {
+		t.Fatal("missing generation manifest provisioned journal")
+	}
 	if e = run(args); e != nil {
 		t.Fatal(e)
 	}
