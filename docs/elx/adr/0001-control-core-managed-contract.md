@@ -29,7 +29,7 @@
 
 ## C. TARGET v1 logical interface (Stage 2–7)
 
-Source definition: `contracts/elx/v1/managed.proto`. Это **schema/design snapshot**, не сгенерированный и не зарегистрированный runtime RPC. Namespace `elx.enforcement.v1`; consumer Control должен добавить отдельную versioned копию и explicit negotiation; старый `SubscriptionService` сохранится до миграции. Не пытаться маршрутизировать новые поля через старые uint64 RPC.
+Source definition: `contracts/elx/v1/managed.proto.txt`. Это **schema/design snapshot**, не сгенерированный и не зарегистрированный runtime RPC. Namespace `elx.enforcement.v1`; consumer Control должен добавить отдельную versioned копию и explicit negotiation; старый `SubscriptionService` сохранится до миграции. Не пытаться маршрутизировать новые поля через старые uint64 RPC.
 
 Required sequence:
 1. Deploy boots **explicit managed instance** with node/executor ID, pinned Control public key, store and local authenticated agent channel. **Недостающий env-флаг, authority или store ⇒ NOT_READY/deny**, а не standalone fallback. Legacy standalone — только явно отдельная Xray конфигурация.
