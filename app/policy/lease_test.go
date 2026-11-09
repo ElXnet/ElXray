@@ -20,6 +20,9 @@ import (
 )
 
 func TestSignedControlLeaseRequiresNodeAndAbsoluteExpiry(t *testing.T) {
+	t.Setenv("ELXRAY_MODE", "managed")
+	t.Setenv("ELXRAY_AGENT_UID", fmt.Sprint(os.Geteuid()+100))
+	t.Setenv("ELXRAY_AGENT_GID", "65534")
 	pub, key, err := ed25519.GenerateKey(nil)
 	if err != nil {
 		t.Fatal(err)
@@ -145,6 +148,9 @@ func TestSignedControlLeaseRequiresNodeAndAbsoluteExpiry(t *testing.T) {
 }
 
 func TestLeaseModeRejectsMissingTrustAnchor(t *testing.T) {
+	t.Setenv("ELXRAY_MODE", "managed")
+	t.Setenv("ELXRAY_AGENT_UID", fmt.Sprint(os.Geteuid()+100))
+	t.Setenv("ELXRAY_AGENT_GID", "65534")
 	t.Setenv("ELXRAY_REQUIRE_CONTROL_LEASE", "1")
 	t.Setenv("ELXRAY_CONTROL_LEASE_PUBLIC_KEY", "")
 	t.Setenv("ELXRAY_CONTROL_LEASE_NODE_UUID", uuid.NewString())
