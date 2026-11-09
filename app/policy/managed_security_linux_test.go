@@ -124,6 +124,23 @@ func TestManagedRatesRejectUnsignedRaiseBetweenLeaseRenewals(t *testing.T) {
 	if _, err := m.UpdateSubscription(mk(4, 101, 200, true)); !errors.Is(err, subscriptionrate.ErrUnauthorized) {
 		t.Fatal("disabled state concealed extra allocated rate:", err)
 	}
+	// A disabled subscription may be enabled only within its still-live,
+	// already accepted signed v3 ceiling. Disable itself never admits flows.
+	if err := limit.Downlink.WaitN(context.Background(), 1); !errors.Is(err, subscriptionrate.ErrDisabled) {
+		t.Fatal("disabled policy transmitted traffic:", err)
+	}
+	if _, err := m.UpdateSubscription(mk(4, 100, 200, false)); err != nil {
+		t.Fatal("in-ceiling re-enable under signed lease rejected:", err)
+	}
+	if err := limit.Downlink.WaitN(context.Background(), 1); err != nil {
+		t.Fatal("re-enabled signed flow still denied:", err)
+	}
+	// Losing the enforcement lease cannot be bypassed by incrementing the
+	// revision under an older, still-signed but no longer installed ticket.
+	limit.RequireLease()
+	if _, err := m.UpdateSubscription(mk(5, 101, 200, false)); !errors.Is(err, subscriptionrate.ErrUnauthorized) {
+		t.Fatalf("rate increased after lease was invalidated: %v", err)
+	}
 }
 
 func TestManagedBootRejectsMissingModeAndLeaseFlag(t *testing.T) {
