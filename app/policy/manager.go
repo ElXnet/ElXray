@@ -8,7 +8,6 @@ import (
 	"errors"
 	"os"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -36,9 +35,7 @@ type Instance struct {
 	profileGate          *sessionfence.Registry
 	leasePublicKey       ed25519.PublicKey
 	leaseNodeID          uuid.UUID
-	leaseResourceID      uuid.UUID
-	leaseExecutorID      uuid.UUID
-	leaseMinGeneration   uint64
+	leaseBindings        map[string]leaseBinding
 	leaseGeneration      map[string]uint64
 	leaseSeq             map[string]int64
 	leaseAccepted        map[string]ControlLease
@@ -58,8 +55,7 @@ func New(ctx context.Context, config *Config) (*Instance, error) {
 	// standalone if a single lease flag, key, node or agent identity is lost.
 	managedHints := []string{
 		"ELXRAY_REQUIRE_CONTROL_LEASE", "ELXRAY_CONTROL_LEASE_PUBLIC_KEY",
-		"ELXRAY_CONTROL_LEASE_NODE_UUID", "ELXRAY_CONTROL_LEASE_RESOURCE_UUID",
-		"ELXRAY_CONTROL_LEASE_EXECUTOR_UUID", "ELXRAY_CONTROL_LEASE_MIN_AUTHORITY_GENERATION",
+		"ELXRAY_CONTROL_LEASE_NODE_UUID", "ELXRAY_CONTROL_LEASE_BINDINGS_FILE",
 		"ELXRAY_AGENT_UID", "ELXRAY_AGENT_GID",
 	}
 	if mode != "managed" {
@@ -118,23 +114,13 @@ func New(ctx context.Context, config *Config) (*Instance, error) {
 		if err != nil || node == uuid.Nil {
 			return nil, errors.New("Control lease requires a pinned node UUID")
 		}
-		resource, err := uuid.Parse(os.Getenv("ELXRAY_CONTROL_LEASE_RESOURCE_UUID"))
-		if err != nil || resource == uuid.Nil || resource.String() != os.Getenv("ELXRAY_CONTROL_LEASE_RESOURCE_UUID") {
-			return nil, errors.New("managed Control lease requires a pinned resource UUID")
-		}
-		executor, err := uuid.Parse(os.Getenv("ELXRAY_CONTROL_LEASE_EXECUTOR_UUID"))
-		if err != nil || executor == uuid.Nil || executor.String() != os.Getenv("ELXRAY_CONTROL_LEASE_EXECUTOR_UUID") {
-			return nil, errors.New("managed Control lease requires a pinned executor UUID")
-		}
-		minimum, err := strconv.ParseUint(os.Getenv("ELXRAY_CONTROL_LEASE_MIN_AUTHORITY_GENERATION"), 10, 64)
-		if err != nil || minimum == 0 || minimum > uint64(^uint64(0)>>1) {
-			return nil, errors.New("managed Control lease requires a positive pinned minimum authority generation")
+		bindings, err := loadManagedLeaseBindings(config.Subscriptions)
+		if err != nil {
+			return nil, err
 		}
 		m.leasePublicKey = ed25519.PublicKey(pub)
 		m.leaseNodeID = node
-		m.leaseResourceID = resource
-		m.leaseExecutorID = executor
-		m.leaseMinGeneration = minimum
+		m.leaseBindings = bindings
 		m.leaseGeneration = make(map[string]uint64)
 		m.leaseSeq = make(map[string]int64)
 		m.leaseAccepted = make(map[string]ControlLease)
