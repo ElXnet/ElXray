@@ -42,7 +42,9 @@ type Instance struct {
 
 // New creates new Policy manager instance.
 func New(ctx context.Context, config *Config) (*Instance, error) {
-	if config == nil { return nil, errors.New("policy configuration is required") }
+	if config == nil {
+		return nil, errors.New("policy configuration is required")
+	}
 	mode := os.Getenv("ELXRAY_MODE")
 	if mode != "" && mode != "managed" && mode != "standalone" {
 		return nil, errors.New("unsupported ElXray execution mode")
@@ -64,7 +66,9 @@ func New(ctx context.Context, config *Config) (*Instance, error) {
 		if os.Getenv("ELXRAY_REQUIRE_CONTROL_LEASE") != "1" {
 			return nil, errors.New("managed ElXray requires signed Control lease enforcement")
 		}
-		if _, _, err := elxsecurity.AgentIdentity(); err != nil { return nil, err }
+		if _, _, err := elxsecurity.AgentIdentity(); err != nil {
+			return nil, err
+		}
 	}
 	subscriptions, err := BuildSubscriptionRates(config.Subscriptions)
 	if err != nil {
