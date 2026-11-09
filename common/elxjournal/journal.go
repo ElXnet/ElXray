@@ -63,6 +63,7 @@ type image struct {
  Revisions map[string]uint64 `json:"revisions"`
  Generations map[string]uint64 `json:"generations"`
  Leases map[string]LeaseWatermark `json:"leases"`
+ DeniedProfiles map[string]uint64 `json:"deniedProfiles"`
 }
 type anchor struct {
  Version int `json:"version"`
@@ -95,7 +96,7 @@ func protectedRead(path string) ([]byte,error) {
  return data,nil
 }
 func snapshot(s image) image {
- s.Operations=maps.Clone(s.Operations);s.Revisions=maps.Clone(s.Revisions);s.Generations=maps.Clone(s.Generations);s.Leases=maps.Clone(s.Leases)
+ s.Operations=maps.Clone(s.Operations);s.Revisions=maps.Clone(s.Revisions);s.Generations=maps.Clone(s.Generations);s.Leases=maps.Clone(s.Leases);s.DeniedProfiles=maps.Clone(s.DeniedProfiles)
  return s
 }
 // Provision is an explicit one-time deployment operation, never an automatic
@@ -107,7 +108,7 @@ func Provision(path,storeID string) error {
   if e==nil {return ErrCorrupt};if !os.IsNotExist(e){return e}
  }
  j:=&Journal{path:path}
- return j.persist(image{Version:formatVersion,StoreID:storeID,Operations:map[string]Receipt{},Revisions:map[string]uint64{},Generations:map[string]uint64{},Leases:map[string]LeaseWatermark{}})
+ return j.persist(image{Version:formatVersion,StoreID:storeID,Operations:map[string]Receipt{},Revisions:map[string]uint64{},Generations:map[string]uint64{},Leases:map[string]LeaseWatermark{},DeniedProfiles:map[string]uint64{}})
 }
 // Open fails on a missing anchor, incomplete commit, altered file or single
 // snapshot rollback. Coordinated rollback of both files requires a REMOTE
@@ -120,18 +121,56 @@ func Open(path string) (*Journal,error) {
  if json.Unmarshal(data,&s)!=nil || json.Unmarshal(stamp,&a)!=nil ||
  s.Version!=formatVersion || a.Version!=formatVersion || s.StoreID!=a.StoreID ||
  !uuidRE.MatchString(s.StoreID) || s.Sequence!=a.Sequence || s.Operations==nil ||
- s.Revisions==nil || s.Generations==nil || s.Leases==nil {return nil,ErrCorrupt}
+ s.Revisions==nil || s.Generations==nil || s.Leases==nil || s.DeniedProfiles==nil {return nil,ErrCorrupt}
  sum:=sha256.Sum256(data)
  if a.ImageSHA256!=hex.EncodeToString(sum[:]) {return nil,ErrCorrupt}
  for resource, w := range s.Leases {
   if !uuidRE.MatchString(resource) || w.AuthorityGeneration == 0 || w.Sequence <= 0 || w.NotAfterUnix <= 0 ||
    w.AuthorityGeneration < s.Generations[resource] { return nil, ErrCorrupt }
  }
+ for profile,gen:=range s.DeniedProfiles {
+  if !uuidRE.MatchString(profile)||gen==0{return nil,ErrCorrupt}
+ }
  for id,r:=range s.Operations {
   if id!=r.OperationID || !validCommand(r.Command) || (r.State!="INTENT" && r.State!="APPLIED") {return nil,ErrCorrupt}
  }
  return &Journal{path:path,img:s},nil
 }
+// BootstrapDeniedProfiles preserves old permanent profile denials before
+// converting an operator-approved v1 snapshot to the journal-managed v2.
+// It is only permitted before any leases or real operations exist.
+func (j *Journal) BootstrapDeniedProfiles(profiles []string) error {
+ j.mu.Lock();defer j.mu.Unlock()
+ if j.failed {return ErrCorrupt}
+ if len(j.img.Operations)>0||len(j.img.Leases)>0 {return ErrUncertain}
+ next:=snapshot(j.img)
+ for _,profile:=range profiles{
+  if !uuidRE.MatchString(profile){return ErrInvalid}
+  if next.DeniedProfiles[profile]!=0{return ErrCollision}
+  next.DeniedProfiles[profile]=1
+ }
+ if e:=j.persist(next);e!=nil{j.failed=true;return e}
+ j.img=next;return nil
+}
+
+// DeniedProfiles is the durable non-revocable tombstone set. A restored
+// snapshot missing any tombstone MUST fail closed before managed admission.
+func (j *Journal) DeniedProfiles() map[string]uint64 {
+ j.mu.Lock();defer j.mu.Unlock()
+ return maps.Clone(j.img.DeniedProfiles)
+}
+func (j *Journal) RecordDeniedProfile(profile string,generation uint64) error {
+ j.mu.Lock();defer j.mu.Unlock()
+ if j.failed {return ErrCorrupt}
+ if !uuidRE.MatchString(profile)||generation==0{return ErrInvalid}
+ old:=j.img.DeniedProfiles[profile]
+ if old>generation {return ErrStale}
+ if old==generation {return nil}
+ next:=snapshot(j.img);next.DeniedProfiles[profile]=generation
+ if e:=j.persist(next);e!=nil{j.failed=true;return e}
+ j.img=next;return nil
+}
+
 // HasPending returns true if any previously recorded mutation could have
 // reached the live data plane without a completed durable receipt. Re-admit
 // nothing until Control reconciles it.
