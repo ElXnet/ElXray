@@ -134,7 +134,7 @@ class Contracts(unittest.TestCase):
                     altered = source.replace(IDS[1].encode(), IDS[5].encode())
                 elif name == "wrong-challenge-usage":
                     altered = source.replace(CH.encode().hex().encode(),
-                                             bytes.fromhex(CH)[::-1].hex().encode())
+                                             bytes.fromhex(CH)[::-1].hex().encode().hex().encode())
                 elif name == "wrong-key-generation":
                     altered = source[:-72] + be(5) + source[-64:]
                 elif name == "cloned-profile-detached-flow":
