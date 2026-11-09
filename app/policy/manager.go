@@ -47,6 +47,11 @@ func New(ctx context.Context, config *Config) (*Instance, error) {
 	if config == nil {
 		return nil, errors.New("policy configuration is required")
 	}
+	// requireSubscription is an ElX-specific paid-policy guard. It may not
+	// silently start in standalone simply because all Control env vars vanished.
+	if os.Getenv("ELXRAY_MODE") == "" && config.RequireSubscription && len(config.Subscriptions) > 0 {
+		return nil, errors.New("ElX subscriptions require an explicit managed or standalone execution mode")
+	}
 	mode := os.Getenv("ELXRAY_MODE")
 	if mode != "" && mode != "managed" && mode != "standalone" {
 		return nil, errors.New("unsupported ElXray execution mode")

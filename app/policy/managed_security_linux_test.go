@@ -144,6 +144,12 @@ func TestManagedRatesRejectUnsignedRaiseBetweenLeaseRenewals(t *testing.T) {
 }
 
 func TestManagedBootRejectsMissingModeAndLeaseFlag(t *testing.T) {
+	if _, err := New(context.Background(), &Config{
+		RequireSubscription: true,
+		Subscriptions: map[string]*SubscriptionPolicy{"lab": {Emails: []string{"member"}, UplinkBps: 1, DownlinkBps: 1}},
+	}); err == nil {
+		t.Fatal("managed subscriptions started without an explicit execution mode")
+	}
 	t.Setenv("ELXRAY_MODE", "")
 	t.Setenv("ELXRAY_REQUIRE_CONTROL_LEASE", "1")
 	if _, err := New(context.Background(), &Config{}); err == nil {

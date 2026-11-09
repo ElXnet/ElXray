@@ -16,6 +16,7 @@ import (
 )
 
 func TestSignedPressureBindingAndPolicyRevision(t *testing.T) {
+	t.Setenv("ELXRAY_MODE", "standalone")
 	path := filepath.Join(t.TempDir(), "policy.json")
 	pub, signer, err := ed25519.GenerateKey(nil)
 	if err != nil {

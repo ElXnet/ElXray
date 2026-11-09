@@ -17,6 +17,7 @@ import (
 )
 
 func barrierFixture(t *testing.T) (*Instance, ed25519.PublicKey) {
+	t.Setenv("ELXRAY_MODE", "standalone")
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "state.json")
 	pub, key, err := ed25519.GenerateKey(nil)

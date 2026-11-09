@@ -18,6 +18,7 @@ import (
 )
 
 func TestSignedRateBarrierRequiresDurablePolicyAndQuietTransfers(t *testing.T) {
+	t.Setenv("ELXRAY_MODE", "standalone")
 	path := filepath.Join(t.TempDir(), "state.json")
 	pub, priv, err := ed25519.GenerateKey(nil)
 	if err != nil {

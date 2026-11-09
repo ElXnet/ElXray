@@ -12,8 +12,6 @@ import (
 )
 
 func TestManagedBindingsArePerSubscriptionAndProtected(t *testing.T) {
-	node := uuid.New()
-	_ = node
 	one, two, executor := uuid.New(), uuid.New(), uuid.New()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "authority.json")

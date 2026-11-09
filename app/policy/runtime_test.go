@@ -95,6 +95,7 @@ func TestSubscriptionRuntimeConfiguredUnlimitedAndDisabled(t *testing.T) {
 }
 
 func TestSubscriptionFailClosedAndRestore(t *testing.T) {
+	t.Setenv("ELXRAY_MODE", "standalone")
 	m, err := New(context.Background(), &Config{RequireSubscription: true, Subscriptions: map[string]*SubscriptionPolicy{
 		"a": {Emails: []string{"known"}, UplinkBps: 123, DownlinkBps: 456, Revision: 42, Disabled: true},
 	}})
