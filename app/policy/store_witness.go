@@ -2,6 +2,9 @@ package policy
 
 import (
 	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/hex"
+	"sort"
 	"errors"
 	"fmt"
 	"time"
@@ -23,6 +26,7 @@ type SignedStoreWitness struct {
 	CoreRevision        uint64
 	CoreIncarnation     string
 	LastOperationID     string
+	TombstonesSHA256    string
 	Nonce               string
 	NotBefore           int64
 	NotAfter            int64
@@ -30,12 +34,28 @@ type SignedStoreWitness struct {
 }
 
 func StoreWitnessTranscript(w SignedStoreWitness) []byte {
-	if w.Version != 1 {
+	if w.Version != 2 {
 		return nil
 	}
-	return fmt.Appendf(nil, "elx-control-store-witness-v1\n%s\n%s\n%s\n%s\n%d\n%d\n%s\n%s\n%s\n%d\n%d",
+	return fmt.Appendf(nil, "elx-control-store-witness-v2\n%s\n%s\n%s\n%s\n%d\n%d\n%s\n%s\n%s\n%s\n%d\n%d",
 		w.NodeID, w.ResourceID, w.ExecutorID, w.StoreID, w.AuthorityGeneration, w.CoreRevision,
-		w.CoreIncarnation, w.LastOperationID, w.Nonce, w.NotBefore, w.NotAfter)
+		w.CoreIncarnation, w.LastOperationID, w.TombstonesSHA256, w.Nonce, w.NotBefore, w.NotAfter)
+}
+
+// deniedProfileDigest is a stable sorted transcript of permanent VLESS
+// denial tombstones, independently checked against Control's session owners.
+func deniedProfileDigest(denied map[string]uint64) string {
+	keys := make([]string, 0, len(denied))
+	for profile := range denied {
+		keys = append(keys, profile)
+	}
+	sort.Strings(keys)
+	h := sha256.New()
+	_, _ = h.Write([]byte("elx-denied-profile-v1\\n"))
+	for _, profile := range keys {
+		_, _ = fmt.Fprintf(h, "%s\\n%d\\n", profile, denied[profile])
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // ManagedWitnessNonce changes on every core incarnation. A replayed Control
@@ -61,10 +81,11 @@ func (m *Instance) verifyStoreWitnessLocked(t ControlLease, w *SignedStoreWitnes
 	}
 	now := time.Now().UTC().Unix()
 	binding := m.leaseBindings[t.Subscription]
-	if w == nil || w.Version != 1 || len(w.Signature) != ed25519.SignatureSize ||
+	if w == nil || w.Version != 2 || len(w.Signature) != ed25519.SignatureSize ||
 		w.NodeID != m.leaseNodeID.String() || w.ResourceID != t.ResourceID.String() ||
 		w.ExecutorID != binding.ExecutorID.String() ||
 		w.StoreID != m.opJournal.StoreID() ||
+		w.TombstonesSHA256 != deniedProfileDigest(m.opJournal.DeniedProfiles()) ||
 		w.AuthorityGeneration != t.AuthorityGeneration ||
 		w.Nonce != uuid.UUID(m.usageIncarnation).String() ||
 		w.NotBefore > now+5 || w.NotBefore < now-15 ||
