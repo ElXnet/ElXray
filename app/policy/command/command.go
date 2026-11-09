@@ -8,8 +8,8 @@ import (
 	"strconv"
 
 	"github.com/xtls/xray-core/common"
-	"github.com/xtls/xray-core/common/elxsecurity"
 	"github.com/xtls/xray-core/common/elxjournal"
+	"github.com/xtls/xray-core/common/elxsecurity"
 	"github.com/xtls/xray-core/common/subscriptionrate"
 	"github.com/xtls/xray-core/core"
 	"github.com/xtls/xray-core/features/policy"
@@ -116,7 +116,9 @@ func (s *service) GetSubscription(ctx context.Context, r *GetSubscriptionRequest
 				return nil, status.Error(codes.FailedPrecondition, "core store witness unavailable")
 			}
 			nonce, err := manager.ManagedWitnessNonce(p.ID)
-			if err != nil { return nil, status.Error(codes.FailedPrecondition, "durable store not ready") }
+			if err != nil {
+				return nil, status.Error(codes.FailedPrecondition, "durable store not ready")
+			}
 			if err := grpc.SetHeader(ctx, metadata.Pairs("elx-store-witness-nonce", nonce)); err != nil {
 				return nil, err
 			}
@@ -228,8 +230,10 @@ func (s *service) SetSubscription(ctx context.Context, r *SetSubscriptionRequest
 	if r.GetUplinkBps() == 0 || r.GetDownlinkBps() == 0 {
 		return nil, status.Error(codes.PermissionDenied, "unlimited rates require administrator configuration")
 	}
-	update := subscriptionrate.Update{ID: r.Id, ExpectedRevision: r.ExpectedRevision, Revision: r.Revision,
-		UplinkBps: r.GetUplinkBps(), DownlinkBps: r.GetDownlinkBps(), Disabled: r.GetDisabled()}
+	update := subscriptionrate.Update{
+		ID: r.Id, ExpectedRevision: r.ExpectedRevision, Revision: r.Revision,
+		UplinkBps: r.GetUplinkBps(), DownlinkBps: r.GetDownlinkBps(), Disabled: r.GetDisabled(),
+	}
 	// The old RPC path remains only for standalone or explicitly pre-migration
 	// managed nodes. Once the durable journal is active, a mutation MUST carry
 	// exact Control operation identity through the authenticated local channel.
@@ -241,7 +245,9 @@ func (s *service) SetSubscription(ctx context.Context, r *SetSubscriptionRequest
 		get := func(k string) (string, bool) {
 			v := md.Get(k)
 			returnValue := ""
-			if len(v) == 1 { returnValue = v[0] }
+			if len(v) == 1 {
+				returnValue = v[0]
+			}
 			return returnValue, len(v) == 1 && returnValue != ""
 		}
 		id, okID := get("elx-op-id")
@@ -257,7 +263,9 @@ func (s *service) SetSubscription(ctx context.Context, r *SetSubscriptionRequest
 		manager, ok := s.manager.(interface {
 			UpdateManagedSubscription(subscriptionrate.Update, elxjournal.Command) (subscriptionrate.Policy, error)
 		})
-		if !ok { return nil, status.Error(codes.FailedPrecondition, "durable managed operation unavailable") }
+		if !ok {
+			return nil, status.Error(codes.FailedPrecondition, "durable managed operation unavailable")
+		}
 		p, err = manager.UpdateManagedSubscription(update, elxjournal.Command{
 			OperationID: id, NodeID: node, ExecutorID: executor, ResourceID: resource,
 			AuthorityGeneration: generation, ExpectedRevision: update.ExpectedRevision,
