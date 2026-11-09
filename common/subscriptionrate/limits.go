@@ -141,6 +141,12 @@ func (l *Limits) RequireLease() {
 	l.leaseRequired = true
 	l.leaseDeadline = time.Time{}
 	l.leaseTripped = true
+	// Reboots and forced lease invalidation must never hand out the token
+	// bucket's initial 8 KiB credit again. Discard stale credit in BOTH
+	// directions until a new lease is verified.
+	now := time.Now()
+	l.Uplink.tokens, l.Downlink.tokens = 0, 0
+	l.Uplink.last, l.Downlink.last = now, now
 }
 
 // ActiveLeaseDeadline reports the precise, enforced monotonic deadline only
@@ -187,6 +193,12 @@ func (l *Limits) RenewLease(deadline time.Time) bool {
 	var stopped []func()
 	if l.leaseDue(now) && !l.leaseTripped {
 		stopped = l.stopConnectionsLocked()
+	}
+	if l.leaseDue(now) {
+		// Time spent waiting for signed authority is not eligible for
+		// accumulating budget. Old-flow reconnection may not borrow it.
+		l.Uplink.tokens, l.Downlink.tokens = 0, 0
+		l.Uplink.last, l.Downlink.last = now, now
 	}
 	l.leaseDeadline = deadline
 	l.leaseTripped = false
