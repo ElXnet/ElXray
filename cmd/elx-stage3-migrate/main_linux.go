@@ -16,6 +16,7 @@ import (
  "os"
  "path/filepath"
  "sort"
+ "syscall"
  "strings"
 
  "github.com/google/uuid"
@@ -123,6 +124,10 @@ func run(args []string)error{
  if _,e=f.Write(raw);e!=nil{f.Close();return e}
  if e=f.Sync();e!=nil{f.Close();return e}
  if e=f.Close();e!=nil{return e}
+ backupDir,e:=os.Open(filepath.Dir(backup))
+ if e!=nil{return e}
+ if e=backupDir.Sync();e!=nil{backupDir.Close();return e}
+ if e=backupDir.Close();e!=nil{return e}
  if e=elxjournal.Provision(*journalPath,*store);e!=nil{return e}
  j,e:=elxjournal.Open(*journalPath);if e!=nil{return e}
  for _,id:=range names{
@@ -140,7 +145,7 @@ func run(args []string)error{
  temp,e:=os.CreateTemp(dir,".elx-v2-migrate-*");if e!=nil{return e}
  defer os.Remove(temp.Name())
  if e=temp.Chmod(0o600);e!=nil{temp.Close();return e}
- if stat,ok:=st.Sys().(*unix.Stat_t);ok {
+ if stat,ok:=st.Sys().(*syscall.Stat_t);ok {
   if e=os.Chown(temp.Name(),int(stat.Uid),int(stat.Gid));e!=nil{temp.Close();return e}
  }
  if _,e=temp.Write(migrated);e!=nil{temp.Close();return e}
