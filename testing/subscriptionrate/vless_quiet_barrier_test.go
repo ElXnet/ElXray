@@ -31,6 +31,7 @@ import (
 // live subscription has its limits reduced. This is an in-process network
 // fixture, not a claim about external wire-rate or multi-node failover.
 func TestVLESSSessionSurvivesQuietRateBarrier(t *testing.T) {
+	t.Setenv("ELXRAY_MODE", "standalone")
 	target, err := stdnet.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
