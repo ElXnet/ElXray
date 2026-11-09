@@ -45,9 +45,11 @@ func TestSignedControlLeaseRequiresNodeAndAbsoluteExpiry(t *testing.T) {
 	t.Setenv("ELXRAY_CONTROL_LEASE_NODE_UUID", node.String())
 	resource := uuid.New()
 	executor := uuid.New()
-	t.Setenv("ELXRAY_CONTROL_LEASE_RESOURCE_UUID", resource.String())
-	t.Setenv("ELXRAY_CONTROL_LEASE_EXECUTOR_UUID", executor.String())
-	t.Setenv("ELXRAY_CONTROL_LEASE_MIN_AUTHORITY_GENERATION", "7")
+	bindings := filepath.Join(t.TempDir(), "bindings.json")
+	if err := os.WriteFile(bindings, []byte(fmt.Sprintf(`{"lab":{"resourceId":%q,"executorId":%q,"minAuthorityGeneration":7}}`, resource.String(), executor.String())), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ELXRAY_CONTROL_LEASE_BINDINGS_FILE", bindings)
 	m, err := New(context.Background(), &Config{
 		RequireSubscription: true,
 		Subscriptions: map[string]*SubscriptionPolicy{
