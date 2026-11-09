@@ -89,7 +89,7 @@ func (m *Instance) RenewControlLease(t ControlLease) error {
 	if !limits.RenewLease(time.Now().Add(time.Until(time.Unix(t.NotAfter, 0)))) {
 		return errors.New("Control lease was not installed in live limiter")
 	}
-	if _, active := limits.ActiveLeaseDeadline(); !active {
+	if _, active := limits.VerifiedLeaseDeadline(); !active {
 		return errors.New("Control lease enforcement is not active")
 	}
 	m.leaseSeq[t.Subscription] = t.Sequence
