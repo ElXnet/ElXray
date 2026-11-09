@@ -5,9 +5,11 @@ import (
 	"encoding/hex"
 	"errors"
 	"net"
+	"strconv"
 
 	"github.com/xtls/xray-core/common"
 	"github.com/xtls/xray-core/common/elxsecurity"
+	"github.com/xtls/xray-core/common/elxjournal"
 	"github.com/xtls/xray-core/common/subscriptionrate"
 	"github.com/xtls/xray-core/core"
 	"github.com/xtls/xray-core/features/policy"
@@ -70,6 +72,16 @@ func rpcError(err error) error {
 	switch {
 	case errors.Is(err, subscriptionrate.ErrNotFound):
 		return status.Error(codes.NotFound, err.Error())
+	case errors.Is(err, elxjournal.ErrCollision):
+		return status.Error(codes.AlreadyExists, err.Error())
+	case errors.Is(err, elxjournal.ErrUncertain):
+		return status.Error(codes.Unavailable, err.Error())
+	case errors.Is(err, elxjournal.ErrStale):
+		return status.Error(codes.Aborted, err.Error())
+	case errors.Is(err, elxjournal.ErrInvalid):
+		return status.Error(codes.InvalidArgument, err.Error())
+	case errors.Is(err, elxjournal.ErrCorrupt):
+		return status.Error(codes.FailedPrecondition, err.Error())
 	case errors.Is(err, subscriptionrate.ErrConflict):
 		return status.Error(codes.Aborted, err.Error())
 	case errors.Is(err, subscriptionrate.ErrUnauthorized):
@@ -181,7 +193,44 @@ func (s *service) SetSubscription(ctx context.Context, r *SetSubscriptionRequest
 	if r.GetUplinkBps() == 0 || r.GetDownlinkBps() == 0 {
 		return nil, status.Error(codes.PermissionDenied, "unlimited rates require administrator configuration")
 	}
-	p, err := s.manager.UpdateSubscription(subscriptionrate.Update{ID: r.Id, ExpectedRevision: r.ExpectedRevision, Revision: r.Revision, UplinkBps: r.GetUplinkBps(), DownlinkBps: r.GetDownlinkBps(), Disabled: r.GetDisabled()})
+	update := subscriptionrate.Update{ID: r.Id, ExpectedRevision: r.ExpectedRevision, Revision: r.Revision,
+		UplinkBps: r.GetUplinkBps(), DownlinkBps: r.GetDownlinkBps(), Disabled: r.GetDisabled()}
+	// The old RPC path remains only for standalone or explicitly pre-migration
+	// managed nodes. Once the durable journal is active, a mutation MUST carry
+	// exact Control operation identity through the authenticated local channel.
+	var p subscriptionrate.Policy
+	var err error
+	md, hasMetadata := metadata.FromIncomingContext(ctx)
+	hasOperation := hasMetadata && len(md.Get("elx-op-id")) != 0
+	if hasOperation {
+		get := func(k string) (string, bool) {
+			v := md.Get(k)
+			returnValue := ""
+			if len(v) == 1 { returnValue = v[0] }
+			return returnValue, len(v) == 1 && returnValue != ""
+		}
+		id, okID := get("elx-op-id")
+		node, okNode := get("elx-op-node")
+		resource, okResource := get("elx-op-resource")
+		executor, okExecutor := get("elx-op-executor")
+		hash, okHash := get("elx-op-hash")
+		generationRaw, okGeneration := get("elx-op-generation")
+		generation, parsed := strconv.ParseUint(generationRaw, 10, 64)
+		if !(okID && okNode && okResource && okExecutor && okHash && okGeneration) || parsed != nil {
+			return nil, status.Error(codes.InvalidArgument, "invalid managed operation metadata")
+		}
+		manager, ok := s.manager.(interface {
+			UpdateManagedSubscription(subscriptionrate.Update, elxjournal.Command) (subscriptionrate.Policy, error)
+		})
+		if !ok { return nil, status.Error(codes.FailedPrecondition, "durable managed operation unavailable") }
+		p, err = manager.UpdateManagedSubscription(update, elxjournal.Command{
+			OperationID: id, NodeID: node, ExecutorID: executor, ResourceID: resource,
+			AuthorityGeneration: generation, ExpectedRevision: update.ExpectedRevision,
+			NewRevision: update.Revision, PayloadSHA256: hash, Kind: "set-rate",
+		})
+	} else {
+		p, err = s.manager.UpdateSubscription(update)
+	}
 	if err != nil {
 		return nil, rpcError(err)
 	}
