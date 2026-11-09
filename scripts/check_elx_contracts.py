@@ -14,7 +14,7 @@ import uuid
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "contracts/elx/v1/golden.json"
 LEGACY_PROTO = ROOT / "app/policy/command/command.proto"
-TARGET_PROTO = ROOT / "contracts/elx/v1/managed.proto"
+TARGET_PROTO = ROOT / "contracts/elx/v1/managed.proto.txt"
 ADR = ROOT / "docs/elx/adr/0001-control-core-managed-contract.md"
 
 IDS = [
