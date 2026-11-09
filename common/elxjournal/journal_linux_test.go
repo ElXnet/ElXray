@@ -126,10 +126,11 @@ func TestLeaseHighWaterCrashNeverReopensUnknownAuthority(t *testing.T) {
    reopened,e:=Open(path)
    if phase=="after-rename-image"||phase=="before-anchor" {
     if !errors.Is(e,ErrCorrupt){t.Fatalf("torn lease HWM reopened: %v",e)}
-   } else if e==nil {
-    if w,ok:=reopened.Lease(testResource);ok&&w.Sequence==100 {
-     t.Fatal("lease unexpectedly acknowledged before fsync anchor")
-    }
+   } else {
+    if e!=nil {t.Fatal(e)}
+    w,ok:=reopened.Lease(testResource)
+    if phase=="after-rename-anchor" && (!ok || w.Sequence!=100) {t.Fatal("completed anchor lost lease HWM")}
+    if phase=="before-image" && ok {t.Fatal("pre-commit lease HWM was acknowledged")}
    }
   })
  }
