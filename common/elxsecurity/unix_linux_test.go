@@ -13,7 +13,11 @@ func TestLinuxPeerCredentialsRejectForeignLocalIdentity(t *testing.T) {
 	if os.Geteuid() == 0 || os.Getegid() == 0 {
 		t.Skip("test requires a non-root runner")
 	}
-	path := filepath.Join(t.TempDir(), "agent.sock")
+	parent := t.TempDir()
+	if err := os.Chmod(parent, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(parent, "agent.sock")
 	listener, err := ListenManaged(path, uint32(os.Getegid()))
 	if err != nil {
 		t.Fatal(err)
