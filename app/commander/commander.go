@@ -105,6 +105,7 @@ func (c *Commander) Start() error {
 			addr = tcpAddr
 		}
 		var l net.Listener
+		var err error
 		if elxsecurity.Managed() {
 			_, gid, err := elxsecurity.AgentIdentity()
 			if err != nil { return err }
