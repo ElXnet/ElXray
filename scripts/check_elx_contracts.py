@@ -115,6 +115,38 @@ class Contracts(unittest.TestCase):
             self.assertIn(required, ids)
         self.assertTrue(all(x["status"] == "target_negative_test_not_yet_executed" for x in n))
 
+
+    def test_exact_adversarial_wire_vectors(self):
+        # These are exact negative *bytes*; runtime rejection is a later-stage E2E gate.
+        cases = self.data["negativeWire"]
+        self.assertEqual(len(cases), 7)
+        for case in cases:
+            with self.subTest(vector=case["id"]):
+                source = transcript(case["positive"])
+                name = case["id"]
+                if name == "wrong-node-lease":
+                    altered = source.replace(IDS[0].encode(), IDS[1].encode())
+                elif name == "wrong-profile-fence":
+                    altered = source[:-16] + uid(4)
+                elif name == "wrong-owner-fence":
+                    altered = source.replace(uid(0), uid(5))
+                elif name == "wrong-node-rate":
+                    altered = source.replace(IDS[1].encode(), IDS[5].encode())
+                elif name == "wrong-challenge-usage":
+                    altered = source.replace(CH.encode().hex().encode(),
+                                             bytes.fromhex(CH)[::-1].hex().encode())
+                elif name == "wrong-key-generation":
+                    altered = source[:-72] + be(5) + source[-64:]
+                elif name == "cloned-profile-detached-flow":
+                    altered = source[:-32] + bytes([0x44])*32
+                else:
+                    self.fail("unknown negative vector: " + name)
+                self.assertEqual(len(altered), len(source))
+                self.assertNotEqual(source, altered)
+                self.assertEqual(altered.hex(), case["alteredTranscriptHex"])
+                self.assertNotEqual(hashlib.sha256(altered).digest(),
+                                    hashlib.sha256(source).digest())
+
     def test_mutation_invalidates_reference_digest(self):
         # Explicit integrity test: even a one-byte mutation MUST change digest.
         for vector in self.data["vectors"]:
