@@ -111,17 +111,31 @@ type Entry struct {
 // must be separately proved at the actual VPN data path.
 type Registry struct {
 	mu sync.RWMutex
+	key ed25519.PublicKey
+	node uuid.UUID
+	executor uuid.UUID
+	resource uuid.UUID
 	byProfile map[uuid.UUID]Entry
 	byOperation map[uuid.UUID]uuid.UUID
 }
-func New() *Registry {
-	return &Registry{byProfile: make(map[uuid.UUID]Entry), byOperation: make(map[uuid.UUID]uuid.UUID)}
+
+// The trusted authority context is injected from protected core bootstrap,
+// never from the incoming client/operation. Invalid scope cannot be created.
+func New(key ed25519.PublicKey, node, executor, resource uuid.UUID) (*Registry,error) {
+	if len(key)!=ed25519.PublicKeySize||node==uuid.Nil||executor==uuid.Nil||resource==uuid.Nil{
+		return nil,ErrInvalid
+	}
+	return &Registry{key:append(ed25519.PublicKey(nil),key...),
+		node:node,executor:executor,resource:resource,
+		byProfile:make(map[uuid.UUID]Entry),byOperation:make(map[uuid.UUID]uuid.UUID)},nil
 }
 
-func (r *Registry) StageVerified(g Grant) error {
-	if !g.wellFormed() {
-		return ErrInvalid
-	}
+// Stage verifies the exact Ed25519 grant before entering the local projection.
+// A prior journal INTENT and verified Control resource allocation are still
+// required at the calling layer; this projection alone creates no entitlement.
+func (r *Registry) Stage(g Grant, now time.Time) error {
+	if r==nil{return ErrUnauthorized}
+	if err:=Verify(g,r.key,r.node,r.executor,r.resource,now);err!=nil{return err}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if prior, exists := r.byOperation[g.OperationID]; exists {
