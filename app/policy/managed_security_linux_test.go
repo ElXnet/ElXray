@@ -179,7 +179,7 @@ func TestManagedRatesRejectUnsignedRaiseBetweenLeaseRenewals(t *testing.T) {
 func TestManagedBootRejectsMissingModeAndLeaseFlag(t *testing.T) {
 	if _, err := New(context.Background(), &Config{
 		RequireSubscription: true,
-		Subscriptions: map[string]*SubscriptionPolicy{"lab": {Emails: []string{"member"}, UplinkBps: 1, DownlinkBps: 1}},
+		Subscriptions:       map[string]*SubscriptionPolicy{"lab": {Emails: []string{"member"}, UplinkBps: 1, DownlinkBps: 1}},
 	}); err == nil {
 		t.Fatal("managed subscriptions started without an explicit execution mode")
 	}
@@ -212,19 +212,23 @@ func TestManagedStartupRejectsUnlimitedEvenWithValidIdentity(t *testing.T) {
 }
 
 func testStoreWitness(m *Instance, lease ControlLease, signer ed25519.PrivateKey) SignedStoreWitness {
- revision, _, ok := m.opJournal.ResourceState(lease.ResourceID.String())
- if !ok { panic("test missing journal baseline") }
- nonce, err := m.ManagedWitnessNonce("lab")
- if err != nil { panic(err) }
- now := time.Now().Unix()
- w := SignedStoreWitness{
-  Version:1,NodeID:lease.NodeID.String(),ResourceID:lease.ResourceID.String(),
-  ExecutorID:lease.ExecutorID.String(),StoreID:m.opJournal.StoreID(),
-  AuthorityGeneration:lease.AuthorityGeneration,CoreRevision:revision,Nonce:nonce,
-  NotBefore:now,NotAfter:now+15,
- }
- w.Signature=ed25519.Sign(signer,StoreWitnessTranscript(w))
- return w
+	revision, _, ok := m.opJournal.ResourceState(lease.ResourceID.String())
+	if !ok {
+		panic("test missing journal baseline")
+	}
+	nonce, err := m.ManagedWitnessNonce("lab")
+	if err != nil {
+		panic(err)
+	}
+	now := time.Now().Unix()
+	w := SignedStoreWitness{
+		Version: 1, NodeID: lease.NodeID.String(), ResourceID: lease.ResourceID.String(),
+		ExecutorID: lease.ExecutorID.String(), StoreID: m.opJournal.StoreID(),
+		AuthorityGeneration: lease.AuthorityGeneration, CoreRevision: revision, Nonce: nonce,
+		NotBefore: now, NotAfter: now + 15,
+	}
+	w.Signature = ed25519.Sign(signer, StoreWitnessTranscript(w))
+	return w
 }
 
 func TestManagedLeaseHighWaterIsDurableAcrossRestart(t *testing.T) {
