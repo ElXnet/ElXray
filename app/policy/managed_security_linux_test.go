@@ -113,3 +113,15 @@ func TestManagedBootRejectsMissingModeAndLeaseFlag(t *testing.T) {
 		t.Fatal("unknown execution mode started")
 	}
 }
+
+func TestManagedStartupRejectsUnlimitedEvenWithValidIdentity(t *testing.T) {
+	newManagedTestPolicy(t)
+	for _, rates := range [][2]uint64{{0, 200}, {100, 0}, {0, 0}} {
+		_, err := New(context.Background(), &Config{RequireSubscription: true, Subscriptions: map[string]*SubscriptionPolicy{
+			"lab": {Emails: []string{"member"}, UplinkBps: rates[0], DownlinkBps: rates[1]},
+		}})
+		if err == nil {
+			t.Fatalf("managed zero/unlimited startup accepted rates: %v", rates)
+		}
+	}
+}
