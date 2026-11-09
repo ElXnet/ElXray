@@ -7,6 +7,7 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -43,9 +44,17 @@ func newManagedTestPolicy(t *testing.T) (*Instance, ed25519.PrivateKey, uuid.UUI
 	t.Setenv("ELXRAY_CONTROL_LEASE_NODE_UUID", node.String())
 	resource := uuid.New()
 	executor := uuid.New()
-	t.Setenv("ELXRAY_CONTROL_LEASE_RESOURCE_UUID", resource.String())
-	t.Setenv("ELXRAY_CONTROL_LEASE_EXECUTOR_UUID", executor.String())
-	t.Setenv("ELXRAY_CONTROL_LEASE_MIN_AUTHORITY_GENERATION", "8")
+	bindings := filepath.Join(t.TempDir(), "bindings.json")
+	encoded, err := json.Marshal(map[string]rawLeaseBinding{
+		"lab": {ResourceID: resource.String(), ExecutorID: executor.String(), MinAuthorityGeneration: 8},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bindings, encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ELXRAY_CONTROL_LEASE_BINDINGS_FILE", bindings)
 	t.Setenv("ELXRAY_AGENT_UID", strconv.Itoa(os.Geteuid()+42))
 	t.Setenv("ELXRAY_AGENT_GID", "65534")
 	m, err := New(context.Background(), &Config{RequireSubscription: true, Subscriptions: map[string]*SubscriptionPolicy{
@@ -72,7 +81,7 @@ func TestManagedRatesRejectUnsignedRaiseBetweenLeaseRenewals(t *testing.T) {
 	}
 	now := time.Now().Unix()
 	ticket := ControlLease{
-		Version: 3, NodeID: node, ResourceID: m.leaseResourceID, ExecutorID: m.leaseExecutorID,
+		Version: 3, NodeID: node, ResourceID: m.leaseBindings["lab"].ResourceID, ExecutorID: m.leaseBindings["lab"].ExecutorID,
 		AuthorityGeneration: 8, Subscription: "lab", Sequence: 1,
 		NotBefore: now, NotAfter: now + 15, CeilingUp: 100, CeilingDown: 200,
 	}
