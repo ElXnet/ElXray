@@ -17,18 +17,18 @@ import (
 // and must be checked against the Control-pinned core key (never a key inside
 // this object). No receipt is signed for an unresolved INTENT.
 type ManagedOperationEvidence struct {
-	Version uint32 `json:"version"`
-	OperationID string `json:"operationId"`
-	PayloadSHA256 string `json:"payloadSha256"`
-	NodeID string `json:"nodeId"`
-	ExecutorID string `json:"executorId"`
-	ResourceID string `json:"resourceId"`
+	Version             uint32 `json:"version"`
+	OperationID         string `json:"operationId"`
+	PayloadSHA256       string `json:"payloadSha256"`
+	NodeID              string `json:"nodeId"`
+	ExecutorID          string `json:"executorId"`
+	ResourceID          string `json:"resourceId"`
 	AuthorityGeneration uint64 `json:"authorityGeneration"`
-	Revision uint64 `json:"revision"`
-	CoreIncarnation string `json:"coreIncarnation"`
-	StoreID string `json:"storeId"`
-	CompletedUnixNanos int64 `json:"completedUnixNanos"`
-	Signature []byte `json:"signature"`
+	Revision            uint64 `json:"revision"`
+	CoreIncarnation     string `json:"coreIncarnation"`
+	StoreID             string `json:"storeId"`
+	CompletedUnixNanos  int64  `json:"completedUnixNanos"`
+	Signature           []byte `json:"signature"`
 }
 
 func (r ManagedOperationEvidence) transcript(challenge string) []byte {
@@ -77,7 +77,7 @@ func (m *Instance) SignedManagedReceipt(subscriptionID, operationID, challenge s
 		ExecutorID: entry.ExecutorID, ResourceID: entry.ResourceID,
 		AuthorityGeneration: entry.AuthorityGeneration, Revision: entry.NewRevision,
 		CoreIncarnation: uuid.UUID(m.usageIncarnation).String(),
-		StoreID: m.opJournal.StoreID(), CompletedUnixNanos: entry.CompletedUnixNanos,
+		StoreID:         m.opJournal.StoreID(), CompletedUnixNanos: entry.CompletedUnixNanos,
 	}
 	receipt.Signature = ed25519.Sign(m.store.key, receipt.transcript(challenge))
 	return json.Marshal(receipt)
