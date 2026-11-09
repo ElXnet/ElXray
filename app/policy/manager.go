@@ -16,6 +16,7 @@ import (
 
 	"github.com/xtls/xray-core/common"
 	"github.com/xtls/xray-core/common/elxsecurity"
+	"github.com/xtls/xray-core/common/elxjournal"
 	"github.com/xtls/xray-core/common/sessionfence"
 	"github.com/xtls/xray-core/common/subscriptionrate"
 	"github.com/xtls/xray-core/features/policy"
@@ -29,6 +30,7 @@ type Instance struct {
 	subscriptions        map[string]*subscriptionrate.Limits
 	subscriptionMu       sync.Mutex
 	store                *policyStore
+	opJournal            *elxjournal.Journal
 	usageIncarnation     [16]byte
 	usageSequences       map[string]uint64
 	subscriptionPolicies map[string]subscriptionrate.Policy
@@ -60,7 +62,7 @@ func New(ctx context.Context, config *Config) (*Instance, error) {
 	// standalone if a single lease flag, key, node or agent identity is lost.
 	managedHints := []string{
 		"ELXRAY_REQUIRE_CONTROL_LEASE", "ELXRAY_CONTROL_LEASE_PUBLIC_KEY",
-		"ELXRAY_CONTROL_LEASE_NODE_UUID", "ELXRAY_CONTROL_LEASE_BINDINGS_FILE",
+		"ELXRAY_CONTROL_LEASE_NODE_UUID", "ELXRAY_CONTROL_LEASE_BINDINGS_FILE", "ELXRAY_OP_JOURNAL",
 		"ELXRAY_AGENT_UID", "ELXRAY_AGENT_GID",
 	}
 	if mode != "managed" {
@@ -155,6 +157,33 @@ func New(ctx context.Context, config *Config) (*Instance, error) {
 		m.usageIncarnation[8] = m.usageIncarnation[8]&0x3f | 0x80
 		for _, p := range m.subscriptionPolicies {
 			m.subscriptions[strings.ToLower(p.Emails[0])].Update(p.UplinkBps, p.DownlinkBps, p.Disabled)
+		}
+	}
+	// Stage-3 durable journal is an explicit, provisioned managed-state
+	// extension. It never initializes itself from a missing file or from
+	// a stale savedPolicies v1 snapshot. During migration, existing managed
+	// nodes without ELXRAY_OP_JOURNAL keep their stage-2 fail-closed lease
+	// semantics; deployment cannot advertise durable-ops capability yet.
+	if mode == "managed" && os.Getenv("ELXRAY_OP_JOURNAL") != "" {
+		journal, err := elxjournal.Open(os.Getenv("ELXRAY_OP_JOURNAL"))
+		if err != nil {
+			_ = m.Close()
+			return nil, err
+		}
+		if journal.HasPending() {
+			_ = m.Close()
+			return nil, elxjournal.ErrUncertain
+		}
+		m.opJournal = journal
+		for id, binding := range m.leaseBindings {
+			if saved, ok := journal.Lease(binding.ResourceID.String()); ok {
+				if saved.AuthorityGeneration < binding.MinAuthorityGeneration {
+					_ = m.Close()
+					return nil, elxjournal.ErrStale
+				}
+				m.leaseSeq[id] = saved.Sequence
+				m.leaseGeneration[id] = saved.AuthorityGeneration
+			}
 		}
 	}
 	if len(config.Level) > 0 {
