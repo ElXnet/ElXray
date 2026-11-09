@@ -211,6 +211,22 @@ func TestManagedStartupRejectsUnlimitedEvenWithValidIdentity(t *testing.T) {
 	}
 }
 
+func testStoreWitness(m *Instance, lease ControlLease, signer ed25519.PrivateKey) SignedStoreWitness {
+ revision, _, ok := m.opJournal.ResourceState(lease.ResourceID.String())
+ if !ok { panic("test missing journal baseline") }
+ nonce, err := m.ManagedWitnessNonce("lab")
+ if err != nil { panic(err) }
+ now := time.Now().Unix()
+ w := SignedStoreWitness{
+  Version:1,NodeID:lease.NodeID.String(),ResourceID:lease.ResourceID.String(),
+  ExecutorID:lease.ExecutorID.String(),StoreID:m.opJournal.StoreID(),
+  AuthorityGeneration:lease.AuthorityGeneration,CoreRevision:revision,Nonce:nonce,
+  NotBefore:now,NotAfter:now+15,
+ }
+ w.Signature=ed25519.Sign(signer,StoreWitnessTranscript(w))
+ return w
+}
+
 func TestManagedLeaseHighWaterIsDurableAcrossRestart(t *testing.T) {
 	m, signer, node := newManagedTestPolicyWithJournal(t)
 	binding := m.leaseBindings["lab"]
@@ -222,7 +238,7 @@ func TestManagedLeaseHighWaterIsDurableAcrossRestart(t *testing.T) {
 		NotBefore: now, NotAfter: now + 15, CeilingUp: 100, CeilingDown: 200,
 	}
 	lease.Signature = ed25519.Sign(signer, ControlLeaseTranscript(lease))
-	if err := m.RenewControlLease(lease); err != nil {
+	if err := m.RenewControlLeaseWithWitness(lease, testStoreWitness(m, lease, signer)); err != nil {
 		t.Fatal(err)
 	}
 	if err := m.Close(); err != nil {
@@ -236,13 +252,13 @@ func TestManagedLeaseHighWaterIsDurableAcrossRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer restarted.Close()
-	if err := restarted.RenewControlLease(lease); err == nil {
+	if err := restarted.RenewControlLeaseWithWitness(lease, testStoreWitness(restarted, lease, signer)); err == nil {
 		t.Fatal("accepted previously signed Control sequence after core restart")
 	}
 	lease.Sequence = 101
 	lease.NotAfter = now + 16
 	lease.Signature = ed25519.Sign(signer, ControlLeaseTranscript(lease))
-	if err := restarted.RenewControlLease(lease); err != nil {
+	if err := restarted.RenewControlLeaseWithWitness(lease, testStoreWitness(restarted, lease, signer)); err != nil {
 		t.Fatalf("fresh signed v3 lease after restart rejected: %v", err)
 	}
 }
