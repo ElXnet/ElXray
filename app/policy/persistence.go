@@ -14,8 +14,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/xtls/xray-core/common/subscriptionrate"
 	"github.com/google/uuid"
+	"github.com/xtls/xray-core/common/subscriptionrate"
 )
 
 type savedPolicies struct {
@@ -27,13 +27,13 @@ type savedPolicies struct {
 }
 
 type policyStore struct {
-	path   string
+	path    string
 	version int
 	storeID string
-	lock   *os.File
-	key    ed25519.PrivateKey
-	base   map[string]subscriptionrate.Policy
-	failed bool
+	lock    *os.File
+	key     ed25519.PrivateKey
+	base    map[string]subscriptionrate.Policy
+	failed  bool
 }
 
 // Standalone still accepts its exact version-1 startup manifest. A durable
@@ -51,8 +51,10 @@ func (m *Instance) restorePolicies(path string) error {
 	if m.opJournal != nil {
 		wantedVersion, wantedStoreID = 2, m.opJournal.StoreID()
 	}
-	store := &policyStore{path: path, lock: lock, base: maps.Clone(m.subscriptionPolicies),
-		version: wantedVersion, storeID: wantedStoreID}
+	store := &policyStore{
+		path: path, lock: lock, base: maps.Clone(m.subscriptionPolicies),
+		version: wantedVersion, storeID: wantedStoreID,
+	}
 	defer func() {
 		if m.store == nil {
 			lock.Close()
