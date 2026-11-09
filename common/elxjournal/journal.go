@@ -169,6 +169,35 @@ func (j *Journal) Lease(resource string) (LeaseWatermark,bool) {
  v,ok:=j.img.Leases[resource];return v,ok
 }
 
+// BootstrapResource is an EXPLICIT, OFFLINE migration step. An agent must
+// reconcile the baseline revision and epoch with Control before invoking it;
+// the core NEVER silently seeds a missing resource during normal startup.
+// A previously initialized resource or a journal with operations cannot be
+// rolled back to an older policy through this helper.
+func (j *Journal) BootstrapResource(resource string, revision, generation uint64) error {
+ j.mu.Lock();defer j.mu.Unlock()
+ if j.failed {return ErrCorrupt}
+ if !uuidRE.MatchString(resource) || revision==0 || generation==0 {return ErrInvalid}
+ if _,ok:=j.img.Revisions[resource];ok {return ErrCollision}
+ if _,ok:=j.img.Generations[resource];ok {return ErrCollision}
+ if len(j.img.Operations)!=0 || len(j.img.Leases)!=0 {return ErrUncertain}
+ next:=snapshot(j.img)
+ next.Revisions[resource]=revision
+ next.Generations[resource]=generation
+ if e:=j.persist(next);e!=nil {j.failed=true;return e}
+ j.img=next
+ return nil
+}
+
+// ResourceState is a read-only local high-water view. The caller must compare
+// it against the independently trusted Control grant before admitting traffic.
+func (j *Journal) ResourceState(resource string) (revision,generation uint64, ok bool) {
+ j.mu.Lock();defer j.mu.Unlock()
+ revision,ok=j.img.Revisions[resource]
+ generation=j.img.Generations[resource]
+ return
+}
+
 func (j *Journal) Get(id string) (Receipt,bool) {
  j.mu.Lock();defer j.mu.Unlock()
  r,ok:=j.img.Operations[id];return r,ok
