@@ -2,11 +2,13 @@ package commander
 
 import (
 	"context"
+	"errors"
 	"net"
 	"strings"
 	"sync"
 
 	"github.com/xtls/xray-core/common"
+	"github.com/xtls/xray-core/common/elxsecurity"
 	"github.com/xtls/xray-core/common/errors"
 	"github.com/xtls/xray-core/common/signal/done"
 	core "github.com/xtls/xray-core/core"
@@ -27,6 +29,12 @@ type Commander struct {
 
 // NewCommander creates a new Commander based on the given config.
 func NewCommander(ctx context.Context, config *Config) (*Commander, error) {
+	if elxsecurity.Managed() {
+		if !strings.HasPrefix(config.Listen, "/") || config.Listen == "/" {
+			return nil, errors.New("managed Commander must listen on a protected filesystem Unix socket; TCP/abstract/outbound are forbidden")
+		}
+		if _, _, err := elxsecurity.AgentIdentity(); err != nil { return nil, err }
+	}
 	c := &Commander{
 		tag:    config.Tag,
 		listen: config.Listen,
@@ -62,8 +70,16 @@ func (c *Commander) Type() interface{} {
 
 // Start implements common.Runnable.
 func (c *Commander) Start() error {
+	var opts []grpc.ServerOption
+	if elxsecurity.Managed() {
+		uid, gid, err := elxsecurity.AgentIdentity()
+		if err != nil { return err }
+		creds, err := elxsecurity.ServerCredentials(uid, gid)
+		if err != nil { return err }
+		opts = append(opts, grpc.Creds(creds))
+	}
 	c.Lock()
-	c.server = grpc.NewServer()
+	c.server = grpc.NewServer(opts...)
 	for _, service := range c.services {
 		service.Register(c.server)
 	}
@@ -88,10 +104,18 @@ func (c *Commander) Start() error {
 			}
 			addr = tcpAddr
 		}
-		l, err := internet.ListenSystem(context.Background(), addr, nil)
-		if err != nil {
-			errors.LogErrorInner(context.Background(), err, "API server failed to listen on ", c.listen)
-			return err
+		var l net.Listener
+		if elxsecurity.Managed() {
+			_, gid, err := elxsecurity.AgentIdentity()
+			if err != nil { return err }
+			l, err = elxsecurity.ListenManaged(c.listen, gid)
+			if err != nil { return err }
+		} else {
+			l, err = internet.ListenSystem(context.Background(), addr, nil)
+			if err != nil {
+				errors.LogErrorInner(context.Background(), err, "API server failed to listen on ", c.listen)
+				return err
+			}
 		}
 		errors.LogInfo(context.Background(), "API server listening on ", l.Addr())
 		go listen(l)
