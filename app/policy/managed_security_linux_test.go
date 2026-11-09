@@ -222,8 +222,9 @@ func testStoreWitness(m *Instance, lease ControlLease, signer ed25519.PrivateKey
 	}
 	now := time.Now().Unix()
 	w := SignedStoreWitness{
-		Version: 1, NodeID: lease.NodeID.String(), ResourceID: lease.ResourceID.String(),
+		Version: 2, NodeID: lease.NodeID.String(), ResourceID: lease.ResourceID.String(),
 		ExecutorID: lease.ExecutorID.String(), StoreID: m.opJournal.StoreID(),
+		TombstonesSHA256: deniedProfileDigest(m.opJournal.DeniedProfiles()),
 		AuthorityGeneration: lease.AuthorityGeneration, CoreRevision: revision, Nonce: nonce,
 		NotBefore: now, NotAfter: now + 15,
 	}
