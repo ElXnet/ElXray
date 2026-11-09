@@ -51,9 +51,9 @@ func deniedProfileDigest(denied map[string]uint64) string {
 	}
 	sort.Strings(keys)
 	h := sha256.New()
-	_, _ = h.Write([]byte("elx-denied-profile-v1\\n"))
+	_, _ = h.Write([]byte("elx-denied-profile-v1\n"))
 	for _, profile := range keys {
-		_, _ = fmt.Fprintf(h, "%s\\n%d\\n", profile, denied[profile])
+		_, _ = fmt.Fprintf(h, "%s\n%d\n", profile, denied[profile])
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
