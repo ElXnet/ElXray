@@ -177,6 +177,25 @@ func (s *service) GetSubscription(ctx context.Context, r *GetSubscriptionRequest
 				return nil, err
 			}
 		}
+		if requested := md.Get("elx-op-readback-id"); len(requested) != 0 {
+			challenge := md.Get("elx-op-readback-challenge")
+			if len(requested) != 1 || len(challenge) != 1 || len(challenge[0]) != 64 {
+				return nil, status.Error(codes.InvalidArgument, "invalid durable operation readback request")
+			}
+			signer, ok := s.manager.(interface {
+				SignedManagedReceipt(string, string, string) ([]byte, error)
+			})
+			if !ok {
+				return nil, status.Error(codes.FailedPrecondition, "managed operation readback unavailable")
+			}
+			evidence, err := signer.SignedManagedReceipt(p.ID, requested[0], challenge[0])
+			if err != nil {
+				return nil, status.Error(codes.FailedPrecondition, "managed operation not durably applied")
+			}
+			if err := grpc.SetHeader(ctx, metadata.Pairs("elx-operation-receipt-bin", string(evidence))); err != nil {
+				return nil, err
+			}
+		}
 	}
 	return response(p), nil
 }
