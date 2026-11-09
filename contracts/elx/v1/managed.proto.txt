@@ -1,0 +1,142 @@
+// INACTIVE design source: rename to .proto only alongside generated stubs + Control consumer.
+syntax = "proto3";
+package elx.enforcement.v1;
+option go_package = "github.com/xtls/xray-core/app/policy/managedv1;managedv1";
+
+// DESIGN CONTRACT ONLY. Not a registered runtime service. Stage 2-7 implementation.
+// All untrusted input is rejected until a pinned, signed Control authority is installed.
+// UUIDs are canonical lower-case RFC 9562 strings. JSON int64/uint64 are decimal strings.
+// Rates = bytes/second from subscriber perspective. Payload volume = bytes.
+message RequestHeader {
+  uint32 contract_version = 1;        // Must equal 1
+  string operation_id = 2;            // UUID, unique within authority and executor
+  bytes payload_sha256 = 3;           // 32 bytes, digest of canonical mutation body
+  string resource_id = 4;             // Control allocation resource UUID
+  string entitlement_id = 5;
+  string node_id = 6;
+  string executor_id = 7;
+  uint64 authority_generation = 8;
+  uint64 expected_revision = 9;
+  uint64 new_revision = 10;
+  string core_incarnation = 11;
+}
+
+enum AccessMode {
+  ACCESS_MODE_UNSPECIFIED = 0; // Always invalid
+  ACCESS_DENY = 1;
+  ACCESS_LIMITED = 2;
+}
+
+message Grant {
+  string resource_id = 1;
+  string entitlement_id = 2;
+  uint64 upload_bytes_per_second = 3;   // >0 when ACCESS_LIMITED
+  uint64 download_bytes_per_second = 4; // >0 when ACCESS_LIMITED
+  AccessMode access = 5;
+  int64 not_before_unix_seconds = 6;
+  int64 expires_at_unix_seconds = 7;
+  // Exact Control-signed grant must match ADR-0001 + golden.json.
+  bytes signed_authority_grant = 8;
+}
+
+message OwnerBinding {
+  string profile_id = 1;        // VLESS account UUID (NOT HWID)
+  string device_id = 2;         // Control business identity
+  uint64 key_generation = 3;    // >0
+  string owner_id = 4;
+  uint64 session_generation = 5;
+  string node_id = 6;
+  string executor_id = 7;
+  string core_incarnation = 8;
+  uint64 authority_generation = 9;
+  string entitlement_id = 10;
+  bytes signed_binding = 11;    // distinct domain, defined by Stage 4-6 ADR
+}
+
+enum OperationKind {
+  OPERATION_KIND_UNSPECIFIED = 0;
+  OP_APPLY_GRANT = 1;
+  OP_REMOVE_GRANT = 2;
+  OP_INSTALL_BINDING = 3;
+  OP_REVOKE_BINDING = 4;
+  OP_FENCE_OWNER = 5;
+}
+
+message ManagedMutation {
+  RequestHeader header = 1;
+  OperationKind kind = 2;
+  oneof payload {
+    Grant grant = 3;
+    OwnerBinding binding = 4;
+  }
+}
+
+enum OperationState {
+  OPERATION_STATE_UNSPECIFIED = 0;
+  OP_QUEUED = 1;
+  OP_RUNNING = 2;
+  OP_APPLIED = 3;
+  OP_REJECTED = 4;
+  OP_UNKNOWN = 5;
+}
+message OperationReceipt {
+  uint32 contract_version = 1;
+  string operation_id = 2;
+  bytes payload_sha256 = 3;
+  string node_id = 4;
+  string executor_id = 5;
+  uint64 authority_generation = 6;
+  uint64 applied_revision = 7;
+  string core_incarnation = 8;
+  string store_id = 9;
+  int64 completed_at_unix_nanos = 10;
+  OperationState state = 11;
+  string reason_code = 12;            // Stable, no secrets
+  bytes proof = 13;                  // Versioned signed transcript, not generic JSON signing
+}
+
+message ReadOperationRequest { string operation_id = 1; string resource_id = 2; }
+message ReadStateRequest { string resource_id = 1; }
+message ReadStateResponse {
+  uint64 applied_revision = 1;
+  bytes payload_sha256 = 2;
+  string core_incarnation = 3;
+  string store_id = 4;
+  uint64 authority_generation = 5;
+  Grant applied_grant = 6;
+  bool ready = 7;
+}
+message Empty {}
+message Capability {
+  string id = 1;
+  uint32 version = 2;
+}
+message CoreStatus {
+  uint32 contract_version = 1;
+  string git_commit = 2;
+  string binary_sha256 = 3;
+  string core_incarnation = 4;
+  string store_id = 5;
+  string node_id = 6;
+  string executor_id = 7;
+  uint64 authority_generation = 8;
+  bool managed = 9;
+  bool ready = 10;
+  repeated Capability capabilities = 11; // advertise proven working, not targets
+  repeated string reason_codes = 12;
+}
+message FenceRequest { RequestHeader header = 1; OwnerBinding binding = 2; }
+message FenceReceipt { OperationReceipt receipt = 1; bytes signed_fence = 2; }
+message RateBarrierRequest { RequestHeader header = 1; uint64 up_bytes_per_second = 2; uint64 down_bytes_per_second = 3; }
+message RateBarrierReceipt { OperationReceipt receipt = 1; bytes signed_barrier = 2; }
+
+// Existing standalone Xray SubscriptionService remains in its original package.
+// New API must not be enabled until core, agent and Control agree on pinned version.
+service ManagedEnforcement {
+  rpc Status(Empty) returns (CoreStatus);
+  rpc Apply(ManagedMutation) returns (OperationReceipt);
+  rpc ReadOperation(ReadOperationRequest) returns (OperationReceipt);
+  rpc ReadState(ReadStateRequest) returns (ReadStateResponse);
+  rpc Fence(FenceRequest) returns (FenceReceipt);
+  rpc ProveRateBarrier(RateBarrierRequest) returns (RateBarrierReceipt);
+}
