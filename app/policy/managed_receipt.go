@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/xtls/xray-core/common/subscriptionrate"
 )
 
 // ManagedOperationEvidence is a versioned, core-signed APPLIED receipt. The
@@ -63,7 +64,11 @@ func (m *Instance) SignedManagedReceipt(subscriptionID, operationID, challenge s
 		entry.ResourceID != binding.ResourceID.String() ||
 		entry.ExecutorID != binding.ExecutorID.String() ||
 		entry.NodeID != m.leaseNodeID.String() || entry.NewRevision != policy.Revision ||
-		entry.AuthorityGeneration < binding.MinAuthorityGeneration {
+		entry.AuthorityGeneration < binding.MinAuthorityGeneration ||
+		entry.PayloadSHA256 != ManagedUpdateHash(subscriptionrate.Update{
+			ID: subscriptionID, ExpectedRevision: entry.ExpectedRevision, Revision: entry.NewRevision,
+			UplinkBps: policy.UplinkBps, DownlinkBps: policy.DownlinkBps, Disabled: policy.Disabled,
+		}) {
 		return nil, errors.New("no matching durable APPLIED managed operation")
 	}
 	receipt := ManagedOperationEvidence{
