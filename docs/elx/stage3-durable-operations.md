@@ -75,3 +75,89 @@ No trailing newline; all UUIDs canonical lowercase. Both repos pin the same gold
 6. On-disk core operation receipt needs a separately pinned remote store incarnation for crash/rollback-proof handoffs. Stage 3 scope must not be confused with future Stage 4 dynamic provisioning and Stage 7 owner fences.
 
 **Deployment:** These are *draft feature branches only*. Do not enable `ELXRAY_OP_JOURNAL` on production paid nodes until a verified migration has completed and both PRs pass their release gates. Stage 4 has not started.
+
+## Checkpoint 2026-11-09: remote HWM, witness and offline migration
+
+The paired Control PR #22 now adds checksummed `022_core_store_witness.sql`, transactional
+`journal.ConfirmAppliedWithStoreWitness`, a protected `bootstrap-store-witness`
+operator CLI and mTLS `PolicyDelivery/StoreWitness` RPC.
+
+**PostgreSQL is authoritative**, not the node's JSON files. For each
+`(nodeId,resourceId)` the independent row pins immutable `storeId`,
+`executorId`, `authorityGeneration`, `coreRevision`, and the last
+`(coreIncarnation,operationId)`. A new APPLIED receipt advances this HWM
+**in the same PostgreSQL transaction** that marks its Control journal command
+applied. A reused operation may be acknowledged idempotently but may not move
+the witness backwards. A foreign store or older epoch is rejected.
+
+**Freshness:** core generates a cryptographically random UUID on each boot.
+The authenticated local agent obtains that nonce, asks Control to sign the
+independent PostgreSQL witness bound to that exact nonce and a 15-second
+window, and passes the signed witness alongside a v3 lease. With
+`ELXRAY_OP_JOURNAL` configured, the core refuses a lease with no valid witness,
+wrong `storeId`/resource/executor/generation, stale or foreign nonce,
+mismatched core revision or missing locally APPLIED operation. It checks the
+witness before installing a limiter deadline. Neither a self-signed node
+assertion nor a prior-boot cached witness suffices.
+
+**Paired environment settings (ONLY after approved migration):**
+```text
+ElXray:     ELXRAY_MODE=managed
+ElXray:     ELXRAY_OP_JOURNAL=/var/lib/elxray/operations.json
+ElX-control ELX_AGENT_MANAGED=1
+ElX-control ELX_AGENT_STORE_WITNESS_REQUIRED=1
+```
+All other stage-2 signed lease, node key, trusted bindings and Unix agent
+identity settings remain mandatory. The stage-3 option is **not production
+ready without passing complete Go/PostgreSQL/rollback and two-executor tests**.
+
+**Operator-only v1→v2 migration, never on a live core:**
+1. Record a verified SHA-256 of the original **nonempty** v1 snapshot,
+   review the exact Control mapping, snapshot revision, grant epoch and
+   denied profiles. Stop the core and retain an independently stored backup.
+2. Choose a unique immutable `storeId` and have an operator with DB
+   credentials run `elx-control bootstrap-store-witness` with exact
+   node/resource/executor, Control epoch and core revision; the action
+   requires the literal `ACK_OFFLINE_CORE_BASELINE` and validates the
+   active Control binding, durable DB revision and epoch. This is privileged
+   administrative approval, **not an automatic core attestation**.
+3. Run `go run ./cmd/elx-stage3-migrate -state /ABS/policy.json
+   -journal /ABS/operations.json -bindings /ABS/bindings.json
+   -store STORE_UUID -expected-sha256 EXPECTED_OLD_SNAPSHOT_SHA256
+   -approve OFFLINE_CONTROL_APPROVED` only while the Linux policy
+   state lock is held exclusively by the offline migration process. It
+   creates a write-once v1 backup, explicitly provisions the journal,
+   seeds per-resource revision/epoch, preserves all VLESS-denial tombstones,
+   then atomically replaces the snapshot with version 2 and the same storeId.
+   A half-migration aborts startup; **do not blindly retry or delete files**.
+4. Before enabling managed service, verify witness/manifest matches in
+   Control and that the core will reject v1/wrong-store/replayed leases.
+   Recovery from an ambiguous migration requires explicit operator audit.
+
+**Profile tombstones:** every managed signed VLESS drain records a durable
+generation-indexed profile-denial tombstone in the journal before signing
+the active drain. The v2 snapshot denial set and journal tombstones must
+match exactly at boot. Replacing both local files with an older snapshot
+still requires a fresh remote PostgreSQL witness to renew the lease.
+The stronger owner→profile→node generation authorization remains Stage 7.
+
+**Locally reproducible offline test runner:** `ELX_CONTROL_DIR=/path/to/ElX-control
+bash scripts/check-stage3-local.sh`. It checks Go version against
+`go.mod`, formats, focused race tests, `go test ./...` and `go vet ./...`
+for BOTH repositories. `ELX_TEST_POSTGRES_DSN` is mandatory for real
+PostgreSQL tests; without it they are reported **NOT RUN**, never PASS.
+Do not point this DSN at a real paid/production database.
+
+### Still NOT DONE
+- Signed initial/offline core baseline proof and operator-approved migration
+  E2E with a real PostgreSQL instance and protected systemd identities.
+- Automatic authenticated reconciliation of INTENT with unknown outcome
+  after crash or split-brain; currently this safely blocks admission.
+- Full Go 1.27 CI/race/static/transport matrix at the actual PR commits;
+  GitHub checks queued, and this container only has Go 1.23.2 plus no
+  local PostgreSQL. Isolated journal/witness tests alone are insufficient.
+- Long-running journal compaction/tombstone retention without ID replay,
+  disk-full fault injection against real Xray process, and multi-executor
+  partition/restart tests.
+
+**Current status: IN_PROGRESS. Do not merge PR #21 and Control PR #22 yet.**
