@@ -176,6 +176,15 @@ func New(ctx context.Context, config *Config) (*Instance, error) {
 		}
 		m.opJournal = journal
 		for id, binding := range m.leaseBindings {
+			// A state recovered from an older JSON snapshot is not authority.
+			// Its core revision must match the explicitly Control-reconciled
+			// journal baseline, or the managed node refuses to start.
+			revision, generation, ready := journal.ResourceState(binding.ResourceID.String())
+			policy := m.subscriptionPolicies[id]
+			if !ready || revision != policy.Revision || generation < binding.MinAuthorityGeneration {
+				_ = m.Close()
+				return nil, elxjournal.ErrStale
+			}
 			if saved, ok := journal.Lease(binding.ResourceID.String()); ok {
 				if saved.AuthorityGeneration < binding.MinAuthorityGeneration {
 					_ = m.Close()
