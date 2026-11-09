@@ -105,6 +105,22 @@ func (s *service) GetSubscription(ctx context.Context, r *GetSubscriptionRequest
 		return nil, rpcError(err)
 	}
 	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		if nonceRequested := md.Get("elx-store-witness-nonce"); len(nonceRequested) != 0 {
+			if len(nonceRequested) != 1 || nonceRequested[0] != "1" {
+				return nil, status.Error(codes.InvalidArgument, "invalid independent store witness nonce request")
+			}
+			manager, valid := s.manager.(interface {
+				ManagedWitnessNonce(string) (string, error)
+			})
+			if !valid {
+				return nil, status.Error(codes.FailedPrecondition, "core store witness unavailable")
+			}
+			nonce, err := manager.ManagedWitnessNonce(p.ID)
+			if err != nil { return nil, status.Error(codes.FailedPrecondition, "durable store not ready") }
+			if err := grpc.SetHeader(ctx, metadata.Pairs("elx-store-witness-nonce", nonce)); err != nil {
+				return nil, err
+			}
+		}
 		if challenge := md.Get("elx-lease-accept-challenge"); len(challenge) != 0 {
 			if len(challenge) != 1 || len(challenge[0]) != 32 {
 				return nil, status.Error(codes.InvalidArgument, "invalid lease acceptance challenge")
