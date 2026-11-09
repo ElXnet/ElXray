@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/xtls/xray-core/common"
+	"github.com/xtls/xray-core/common/elxsecurity"
 	"github.com/xtls/xray-core/common/sessionfence"
 	"github.com/xtls/xray-core/common/subscriptionrate"
 	"github.com/xtls/xray-core/features/policy"
@@ -41,6 +42,30 @@ type Instance struct {
 
 // New creates new Policy manager instance.
 func New(ctx context.Context, config *Config) (*Instance, error) {
+	if config == nil { return nil, errors.New("policy configuration is required") }
+	mode := os.Getenv("ELXRAY_MODE")
+	if mode != "" && mode != "managed" && mode != "standalone" {
+		return nil, errors.New("unsupported ElXray execution mode")
+	}
+	// A partially provisioned managed node may NEVER silently become
+	// standalone if a single lease flag, key, node or agent identity is lost.
+	managedHints := []string{
+		"ELXRAY_REQUIRE_CONTROL_LEASE", "ELXRAY_CONTROL_LEASE_PUBLIC_KEY",
+		"ELXRAY_CONTROL_LEASE_NODE_UUID", "ELXRAY_AGENT_UID", "ELXRAY_AGENT_GID",
+	}
+	if mode != "managed" {
+		for _, key := range managedHints {
+			if os.Getenv(key) != "" {
+				return nil, errors.New("managed identity hints require explicit ELXRAY_MODE=managed")
+			}
+		}
+	}
+	if mode == "managed" {
+		if os.Getenv("ELXRAY_REQUIRE_CONTROL_LEASE") != "1" {
+			return nil, errors.New("managed ElXray requires signed Control lease enforcement")
+		}
+		if _, _, err := elxsecurity.AgentIdentity(); err != nil { return nil, err }
+	}
 	subscriptions, err := BuildSubscriptionRates(config.Subscriptions)
 	if err != nil {
 		return nil, err
@@ -57,7 +82,7 @@ func New(ctx context.Context, config *Config) (*Instance, error) {
 		m.unmanaged = subscriptionrate.New(0, 0)
 		m.unmanaged.Update(0, 0, true)
 	}
-	if os.Getenv("ELXRAY_REQUIRE_CONTROL_LEASE") == "1" {
+	if mode == "managed" {
 		if !config.RequireSubscription || len(m.subscriptions) == 0 {
 			return nil, errors.New("Control lease enforcement requires managed subscriptions")
 		}
