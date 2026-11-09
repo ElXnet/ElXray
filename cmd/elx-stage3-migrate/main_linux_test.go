@@ -18,6 +18,7 @@ func TestOfflineManagedSnapshotMigrationRetainsBindingsAndDenials(t *testing.T) 
 	state := filepath.Join(dir, "policy.json")
 	journalPath := filepath.Join(dir, "operations.json")
 	bindingPath := filepath.Join(dir, "bindings.json")
+	denialsPath := filepath.Join(dir, "denied-generations.json")
 	storeID := "11111111-1111-4111-8111-111111111111"
 	resource := "22222222-2222-4222-8222-222222222222"
 	executor := "33333333-3333-4333-8333-333333333333"
@@ -47,9 +48,17 @@ func TestOfflineManagedSnapshotMigrationRetainsBindingsAndDenials(t *testing.T) 
 	if e = os.WriteFile(bindingPath, raw, 0o600); e != nil {
 		t.Fatal(e)
 	}
+	deniedGenerations, err := json.Marshal(map[string]uint64{profile: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(denialsPath, deniedGenerations, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	h := sha256.Sum256(encoded)
 	args := []string{
 		"-state", state, "-journal", journalPath, "-bindings", bindingPath,
+		"-denied-generations", denialsPath,
 		"-store", storeID, "-expected-sha256", hex.EncodeToString(h[:]),
 		"-approve", "OFFLINE_CONTROL_APPROVED",
 	}
@@ -85,7 +94,7 @@ func TestOfflineManagedSnapshotMigrationRetainsBindingsAndDenials(t *testing.T) 
 	if rev, gen, ok := j.ResourceState(resource); !ok || rev != 1 || gen != 9 {
 		t.Fatalf("managed journal initial authority not preserved: %d %d %v", rev, gen, ok)
 	}
-	if j.DeniedProfiles()[profile] == 0 {
+	if j.DeniedProfiles()[profile] != 7 {
 		t.Fatal("v1 revoked VLESS profile was resurrected")
 	}
 	if _, e = os.Stat(state + ".stage3-v1.backup"); e != nil {
