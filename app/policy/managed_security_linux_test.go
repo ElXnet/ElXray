@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/xtls/xray-core/common/elxjournal"
 	"github.com/xtls/xray-core/common/subscriptionrate"
 )
 
@@ -40,6 +41,11 @@ func newManagedTestPolicy(t *testing.T) (*Instance, ed25519.PrivateKey, uuid.UUI
 	t.Setenv("ELXRAY_MODE", "managed")
 	t.Setenv("ELXRAY_REQUIRE_CONTROL_LEASE", "1")
 	t.Setenv("ELXRAY_POLICY_STATE", path)
+	journalPath := path + ".ops"
+	if err := elxjournal.Provision(journalPath, uuid.NewString()); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ELXRAY_OP_JOURNAL", journalPath)
 	t.Setenv("ELXRAY_CONTROL_LEASE_PUBLIC_KEY", base64.StdEncoding.EncodeToString(pub))
 	t.Setenv("ELXRAY_CONTROL_LEASE_NODE_UUID", node.String())
 	resource := uuid.New()
@@ -175,5 +181,57 @@ func TestManagedStartupRejectsUnlimitedEvenWithValidIdentity(t *testing.T) {
 		if err == nil {
 			t.Fatalf("managed zero/unlimited startup accepted rates: %v", rates)
 		}
+	}
+}
+
+func TestManagedLeaseHighWaterIsDurableAcrossRestart(t *testing.T) {
+	m, signer, node := newManagedTestPolicy(t)
+	binding := m.leaseBindings["lab"]
+	now := time.Now().Unix()
+	lease := ControlLease{
+		Version: 3, NodeID: node, ResourceID: binding.ResourceID,
+		ExecutorID: binding.ExecutorID, AuthorityGeneration: 8,
+		Subscription: "lab", Sequence: 100,
+		NotBefore: now, NotAfter: now + 15, CeilingUp: 100, CeilingDown: 200,
+	}
+	lease.Signature = ed25519.Sign(signer, ControlLeaseTranscript(lease))
+	if err := m.RenewControlLease(lease); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Close(); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &Config{RequireSubscription: true, Subscriptions: map[string]*SubscriptionPolicy{
+		"lab": {Emails: []string{"user"}, UplinkBps: 100, DownlinkBps: 200, Revision: 1},
+	}}
+	restarted, err := New(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restarted.Close()
+	if err := restarted.RenewControlLease(lease); err == nil {
+		t.Fatal("accepted previously signed Control sequence after core restart")
+	}
+	lease.Sequence = 101
+	lease.NotAfter = now + 16
+	lease.Signature = ed25519.Sign(signer, ControlLeaseTranscript(lease))
+	if err := restarted.RenewControlLease(lease); err != nil {
+		t.Fatalf("fresh signed v3 lease after restart rejected: %v", err)
+	}
+}
+
+func TestManagedCorruptJournalCannotStart(t *testing.T) {
+	m, _, _ := newManagedTestPolicy(t)
+	if err := m.Close(); err != nil {
+		t.Fatal(err)
+	}
+	path := os.Getenv("ELXRAY_OP_JOURNAL")
+	if err := os.WriteFile(path+".anchor", []byte("torn"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := New(context.Background(), &Config{RequireSubscription: true, Subscriptions: map[string]*SubscriptionPolicy{
+		"lab": {Emails: []string{"user"}, UplinkBps: 100, DownlinkBps: 200, Revision: 1},
+	}}); err == nil {
+		t.Fatal("corrupt durable operation watermark silently reopened paid node")
 	}
 }
