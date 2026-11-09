@@ -57,6 +57,8 @@ func rpcError(err error) error {
 		return status.Error(codes.NotFound, err.Error())
 	case errors.Is(err, subscriptionrate.ErrConflict):
 		return status.Error(codes.Aborted, err.Error())
+	case errors.Is(err, subscriptionrate.ErrUnauthorized):
+		return status.Error(codes.PermissionDenied, err.Error())
 	case errors.Is(err, subscriptionrate.ErrInvalid):
 		return status.Error(codes.InvalidArgument, err.Error())
 	default:
