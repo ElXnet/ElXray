@@ -46,6 +46,15 @@ type Receipt struct {
  State string `json:"state"`
  CompletedUnixNanos int64 `json:"completedUnixNanos,omitempty"`
 }
+// LeaseWatermark is the maximum accepted signed authority and monotonic
+// Control sequence for one locally pinned resource. The caller MUST verify the
+// lease signature and node/executor/resource binding before recording it.
+type LeaseWatermark struct {
+ AuthorityGeneration uint64 `json:"authorityGeneration"`
+ Sequence int64 `json:"sequence"`
+ NotAfterUnix int64 `json:"notAfterUnix"`
+}
+
 type image struct {
  Version int `json:"version"`
  StoreID string `json:"storeId"`
@@ -53,6 +62,7 @@ type image struct {
  Operations map[string]Receipt `json:"operations"`
  Revisions map[string]uint64 `json:"revisions"`
  Generations map[string]uint64 `json:"generations"`
+ Leases map[string]LeaseWatermark `json:"leases"`
 }
 type anchor struct {
  Version int `json:"version"`
@@ -85,7 +95,7 @@ func protectedRead(path string) ([]byte,error) {
  return data,nil
 }
 func snapshot(s image) image {
- s.Operations=maps.Clone(s.Operations);s.Revisions=maps.Clone(s.Revisions);s.Generations=maps.Clone(s.Generations)
+ s.Operations=maps.Clone(s.Operations);s.Revisions=maps.Clone(s.Revisions);s.Generations=maps.Clone(s.Generations);s.Leases=maps.Clone(s.Leases)
  return s
 }
 // Provision is an explicit one-time deployment operation, never an automatic
@@ -97,7 +107,7 @@ func Provision(path,storeID string) error {
   if e==nil {return ErrCorrupt};if !os.IsNotExist(e){return e}
  }
  j:=&Journal{path:path}
- return j.persist(image{Version:formatVersion,StoreID:storeID,Operations:map[string]Receipt{},Revisions:map[string]uint64{},Generations:map[string]uint64{}})
+ return j.persist(image{Version:formatVersion,StoreID:storeID,Operations:map[string]Receipt{},Revisions:map[string]uint64{},Generations:map[string]uint64{},Leases:map[string]LeaseWatermark{}})
 }
 // Open fails on a missing anchor, incomplete commit, altered file or single
 // snapshot rollback. Coordinated rollback of both files requires a REMOTE
@@ -110,14 +120,55 @@ func Open(path string) (*Journal,error) {
  if json.Unmarshal(data,&s)!=nil || json.Unmarshal(stamp,&a)!=nil ||
  s.Version!=formatVersion || a.Version!=formatVersion || s.StoreID!=a.StoreID ||
  !uuidRE.MatchString(s.StoreID) || s.Sequence!=a.Sequence || s.Operations==nil ||
- s.Revisions==nil || s.Generations==nil {return nil,ErrCorrupt}
+ s.Revisions==nil || s.Generations==nil || s.Leases==nil {return nil,ErrCorrupt}
  sum:=sha256.Sum256(data)
  if a.ImageSHA256!=hex.EncodeToString(sum[:]) {return nil,ErrCorrupt}
+ for resource, w := range s.Leases {
+  if !uuidRE.MatchString(resource) || w.AuthorityGeneration == 0 || w.Sequence <= 0 || w.NotAfterUnix <= 0 ||
+   w.AuthorityGeneration < s.Generations[resource] { return nil, ErrCorrupt }
+ }
  for id,r:=range s.Operations {
   if id!=r.OperationID || !validCommand(r.Command) || (r.State!="INTENT" && r.State!="APPLIED") {return nil,ErrCorrupt}
  }
  return &Journal{path:path,img:s},nil
 }
+// HasPending returns true if any previously recorded mutation could have
+// reached the live data plane without a completed durable receipt. Re-admit
+// nothing until Control reconciles it.
+func (j *Journal) HasPending() bool {
+ j.mu.Lock();defer j.mu.Unlock()
+ if j.failed {return true}
+ for _,r:=range j.img.Operations {if r.State=="INTENT" {return true}}
+ return false
+}
+
+// RecordVerifiedLease persistently advances the anti-replay HWM before the
+// limiter accepts a new Control-signed lease. A torn write marks the journal
+// failed and caller must deny all affected traffic. This is a LOCAL HWM only;
+// coordinated image+anchor rollback needs an independent Control witness.
+func (j *Journal) RecordVerifiedLease(resource string, generation uint64, sequence, notAfter int64) error {
+ j.mu.Lock();defer j.mu.Unlock()
+ if j.failed {return ErrCorrupt}
+ if !uuidRE.MatchString(resource) || generation==0 || sequence<=0 || notAfter<=0 {return ErrInvalid}
+ if j.HasPendingLocked(resource) {return ErrUncertain}
+ current:=j.img.Leases[resource]
+ if generation<current.AuthorityGeneration || generation<j.img.Generations[resource] ||
+  sequence<=current.Sequence || (current.Sequence>0 && notAfter<current.NotAfterUnix && generation==current.AuthorityGeneration) {return ErrStale}
+ next:=snapshot(j.img)
+ next.Leases[resource]=LeaseWatermark{AuthorityGeneration:generation,Sequence:sequence,NotAfterUnix:notAfter}
+ if e:=j.persist(next);e!=nil {j.failed=true;return e}
+ j.img=next
+ return nil
+}
+func (j *Journal) HasPendingLocked(resource string) bool {
+ for _,r:=range j.img.Operations {if r.ResourceID==resource && r.State=="INTENT" {return true}}
+ return false
+}
+func (j *Journal) Lease(resource string) (LeaseWatermark,bool) {
+ j.mu.Lock();defer j.mu.Unlock()
+ v,ok:=j.img.Leases[resource];return v,ok
+}
+
 func (j *Journal) Get(id string) (Receipt,bool) {
  j.mu.Lock();defer j.mu.Unlock()
  r,ok:=j.img.Operations[id];return r,ok
@@ -132,7 +183,7 @@ func (j *Journal) Begin(c Command) (Receipt,error) {
   if r.Command!=c {return Receipt{},ErrCollision}
   return r,nil
  }
- if j.img.Revisions[c.ResourceID]!=c.ExpectedRevision || c.AuthorityGeneration<j.img.Generations[c.ResourceID] {
+ if j.img.Revisions[c.ResourceID]!=c.ExpectedRevision || c.AuthorityGeneration<j.img.Generations[c.ResourceID] || (j.img.Leases[c.ResourceID].AuthorityGeneration>0 && c.AuthorityGeneration<j.img.Leases[c.ResourceID].AuthorityGeneration) {
   return Receipt{},ErrStale
  }
  for _,r:=range j.img.Operations {
