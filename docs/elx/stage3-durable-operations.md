@@ -123,6 +123,7 @@ ready without passing complete Go/PostgreSQL/rollback and two-executor tests**.
    administrative approval, **not an automatic core attestation**.
 3. Run `go run ./cmd/elx-stage3-migrate -state /ABS/policy.json
    -journal /ABS/operations.json -bindings /ABS/bindings.json
+   -denied-generations /ABS/control-confirmed-denial-generations.json
    -store STORE_UUID -expected-sha256 EXPECTED_OLD_SNAPSHOT_SHA256
    -approve OFFLINE_CONTROL_APPROVED` only while the Linux policy
    state lock is held exclusively by the offline migration process. It
@@ -161,3 +162,16 @@ Do not point this DSN at a real paid/production database.
   partition/restart tests.
 
 **Current status: IN_PROGRESS. Do not merge PR #21 and Control PR #22 yet.**
+
+
+## 2026-11-10 checkpoint: profile rollback and CI recovery
+
+**Witness protocol upgraded to v2 (v1 MUST NOT be accepted when the journal is active).** Control derives a cryptographic SHA-256 of the sorted UUID/generation pairs from its authoritative PostgreSQL `elx_session_owners` in `draining` or `released` state. Each short-lived Control-signed store witness now carries `TombstonesSHA256` alongside immutable storeId, executor, epoch, core revision, core incarnation/last operation, fresh boot nonce and validity window. ElXray computes the exact same digest from local durable VLESS profile tombstones. A mismatch refuses a managed lease: restoring **both** older local files cannot silently roll back a Control-approved revocation. The signed transcript prefix changed to `elx-control-store-witness-v2`; Control and core test the shared golden digest `0a4db3a3f4127c05fce5a9db65ece76326fafadc9025f3f5b3167c74609258db`.
+
+When migrating a v1 snapshot that contains denied VLESS profiles, the old file lacks each profile's original generation. The offline migrator now requires an additional private JSON map of `{<canonical-profile-uuid>: <Control-confirmed-positive-generation>}`, given using `-denied-generations`. This map MUST equal exactly the v1 denied profile set. Missing, extra, duplicated or zero-generation values block migration before any new files are provisioned. Importing fabricated generation 1 is unsafe. Empty v1 denial sets can omit this argument.
+
+**CI fact, not assumed success:** GitHub Actions revived. On the earlier heads it exposed a Control compile error (`policytransport/service.go` shared `err`), an explicit standalone-mode regression in the legacy two-node smoke test, and Xray `gofumpt`/profile-fence formatting failures. The former two were corrected in Control PR #22, and the exact Go 1.27 formatter diff for 17 files was applied in ElXray PR #21. Because subsequent commits change both heads again, neither an old successful build nor a queued check is evidence of current-head PASS.
+
+**Local verification on this assistant host (not full repository):** Go 1.23.2 standard-library golden-contract mirror: `go test -race -count=1 -v ./...` and `go vet ./...` PASS for signed receipt, mutation hash, signed store witness v2, and profile-denial HWM parity. Go 1.27, complete Xray+Control source clones, PostgreSQL and Docker are unavailable locally; network/DNS cannot clone GitHub. This mirror is not the production pair, and must not be used alone to declare stage 3 DONE.
+
+**Release gates remain open:** run `scripts/check-stage3-local.sh` from actual adjacent branch checkouts with Go >= 1.27 and `ELX_TEST_POSTGRES_DSN` for isolated PostgreSQL; investigate any failures. For unknown outcomes, the current safe behavior deliberately refuses boot on unresolved INTENT until an operator reconciles with the authoritative Control state, not automatic abandon or replay. The current permanent stop at 16 MiB journal size is also safe but needs a bounded archival/compaction operating procedure. No stage-4 coding or production deployment until these release conditions are met.
