@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/xtls/xray-core/common/subscriptionrate"
+	"github.com/google/uuid"
 )
 
 type savedPolicies struct {
@@ -125,6 +126,20 @@ func (m *Instance) restorePolicies(path string) error {
 		}
 		seen[id] = true
 		denied = append(denied, id)
+	}
+	if m.opJournal != nil {
+		// Denials have two independent durable representations: the policy
+		// snapshot and the operation tombstone set. Either side missing a
+		// previously denied profile is a rollback/partial-write alarm.
+		tombstones := m.opJournal.DeniedProfiles()
+		if len(tombstones) != len(denied) {
+			return errors.New("managed profile tombstone count differs from durable snapshot")
+		}
+		for _, raw := range denied {
+			if tombstones[uuid.UUID(raw).String()] == 0 {
+				return errors.New("managed denied profile missing from operation journal")
+			}
+		}
 	}
 	m.profileGate.Restore(denied)
 	m.store = store
