@@ -58,7 +58,7 @@ func (m *Instance) UpdateSubscription(u subscriptionrate.Update) (subscriptionra
 			if requiresGrant {
 				binding, bound := m.leaseBindings[u.ID]
 				t, ok := m.leaseAccepted[u.ID]
-				deadline, active := limits.ActiveLeaseDeadline()
+				deadline, active := limits.VerifiedLeaseDeadline()
 				if !ok || !active || !deadline.After(time.Now().Add(time.Second)) ||
 					!bound || t.Version != 3 || t.NodeID != m.leaseNodeID ||
 					t.ResourceID != binding.ResourceID || t.ExecutorID != binding.ExecutorID ||
