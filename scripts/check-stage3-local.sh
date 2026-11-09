@@ -55,7 +55,30 @@ fi
 echo "[4/8] download/verify test geodata (identical to CI)"
 bash "$root/scripts/prepare-stage3-test-assets.sh"
 echo "[5/8] core repository-wide suite and static analysis"
-(cd "$root"; go test -count=1 ./...; go vet ./...)
+if [[ "${ELX_EXTERNAL_NETWORK_TESTS:-0}" == "1" ]]; then
+  echo "EXTERNAL NETWORK ON: including live DNS/ECH/REALITY tests"
+  (cd "$root"; go test -count=1 -timeout 30m ./...; go vet ./...)
+else
+  # Keep this list byte-for-byte aligned with Control's
+  # scripts/elxray-full-go-tests.sh, our CI deterministic regression.
+  skip='^(TestECHDial|TestDOHNameServer.*|TestQUICNameServer.*|TestTCPLocalNameServer.*|TestLocalNameServer|TestVlessXtlsVisionReality|TestVlessRealityFingerprints)
+echo "[6/8] Control focused/race"
+(cd "$control"; go test -count=1 -race ./internal/elxcontrol/journal ./internal/elxcontrol/policytransport ./internal/elxcontrol/corepolicy ./cmd/elx-control)
+echo "[7/8] Control repository-wide suite and static analysis"
+(cd "$control"; go test -count=1 ./...; go vet ./...)
+echo "[8/8] PostgreSQL integration coverage"
+if [[ -z "${ELX_TEST_POSTGRES_DSN:-}" ]]; then
+  echo "NOT RUN: PostgreSQL integration tests (set ELX_TEST_POSTGRES_DSN to isolated non-production PostgreSQL)"
+  echo "Status: LOCAL DETERMINISTIC GO TESTS PASS, EXTERNAL NETWORK TESTS MAY BE NOT RUN, POSTGRES E2E NOT RUN; stage3 full acceptance NOT DONE."
+else
+  echo "PostgreSQL DSN provided: integration tests above executed, check their result."
+  echo "Status: LOCAL GO SUITES PASS; external tests may be NOT RUN; manual two-node/partition/crash E2E and production review still needed."
+fi
+
+  echo "NETWORK TESTS NOT RUN (explicit opt-in: ELX_EXTERNAL_NETWORK_TESTS=1)"
+  echo "Excluded test regex: $skip"
+  (cd "$root"; go test -count=1 -timeout 30m -skip "$skip" ./...; go vet ./...)
+fi
 echo "[6/8] Control focused/race"
 (cd "$control"; go test -count=1 -race ./internal/elxcontrol/journal ./internal/elxcontrol/policytransport ./internal/elxcontrol/corepolicy ./cmd/elx-control)
 echo "[7/8] Control repository-wide suite and static analysis"
