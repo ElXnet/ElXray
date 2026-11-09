@@ -135,3 +135,21 @@ func TestLeaseHighWaterCrashNeverReopensUnknownAuthority(t *testing.T) {
   })
  }
 }
+
+func TestDurableVLESSProfileTombstoneNeverSilentlyDisappears(t *testing.T) {
+ j,path:=fresh(t)
+ profile:="77777777-7777-4777-8777-777777777777"
+ if e:=j.BootstrapDeniedProfiles([]string{profile});e!=nil {t.Fatal(e)}
+ if e:=j.RecordDeniedProfile(profile,2);e!=nil {t.Fatal(e)}
+ reopened,e:=Open(path);if e!=nil {t.Fatal(e)}
+ denied:=reopened.DeniedProfiles()
+ if denied[profile]!=2 {t.Fatalf("revoked profile resurrection: %+v",denied)}
+ if e=reopened.RecordDeniedProfile(profile,1);!errors.Is(e,ErrStale) {
+  t.Fatalf("old profile deny generation accepted: %v",e)
+ }
+ if e=reopened.RecordDeniedProfile(profile,3);e!=nil {t.Fatal(e)}
+ if got:=reopened.DeniedProfiles()[profile];got!=3 {t.Fatalf("tombstone HWM lost: %d",got)}
+ if e=reopened.BootstrapDeniedProfiles([]string{profile});!errors.Is(e,ErrCollision) {
+  t.Fatalf("duplicate old profile bootstrapped over tombstone: %v",e)
+ }
+}
