@@ -9,7 +9,8 @@ import (
 // can be mutated. A failed/uncertain live change must not be retried as a new
 // operation or reported INSTALLED. This journal is not an admission grant.
 func (j *Journal) BeginTechnicalInstall(profileID, operationID, transcriptDigest, flow string,
-	revision, authority uint64) (TechnicalProfile, error) {
+	revision, authority uint64,
+) (TechnicalProfile, error) {
 	if j == nil {
 		return TechnicalProfile{}, ErrInvalid
 	}
