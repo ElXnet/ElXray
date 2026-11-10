@@ -606,6 +606,16 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection s
 		return errors.New("unknown request flow " + requestAddons.Flow)
 	}
 
+	// Technical preparation is not signed device/owner admission. This
+	// decision executes on the authenticated VLESS UUID before dispatching
+	// ANY payload, including reverse/Mux roots. The Stage-4 option is
+	// explicitly opt-in and retains old standalone behaviour by default.
+	if admission, ok := h.policyManager.(policy.TechnicalProfileAdmission); ok {
+		if !admission.TechnicalVLESSPayloadAuthorized(uuid.UUID(account.ID.UUID())) {
+			return errors.New("VLESS technical profile lacks signed device admission")
+		}
+	}
+
 	// Register the authenticated VLESS account itself, independently from
 	// shared subscription budgets. Unlike a subscription disable, a profile
 	// drain closes only this device's flows (including reverse/Mux workers).
