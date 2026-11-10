@@ -112,8 +112,9 @@ func (m *Instance) RecoverTechnicalRetiredProof(profileID, operationID string) (
 	}
 	handler, err := m.technicalVLESSHandler(record.InboundTag)
 	id := uuid.MustParse(profileID)
-	if err != nil || technicalVLESSIdentityPresent(handler, id) ||
-		handler.GetUser(nil, record.Email) != nil {
+	// A previously retired email may already be assigned to a new, distinct
+	// effective VLESS UUID. Only the permanently tombstoned UUID must be absent.
+	if err != nil || technicalVLESSIdentityPresent(handler, id) {
 		return empty, elxjournal.ErrUncertain
 	}
 	storeRaw, valid := m.opJournal.StoreIdentity()
