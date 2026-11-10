@@ -26,7 +26,7 @@ func (m *Instance) RetireTechnicalProfile(raw []byte) (elxjournal.TechnicalProfi
 		return empty, elxprovision.ErrUnauthorized
 	}
 	var selector struct {
-		Grant struct { SubscriptionID string }
+		Grant struct{ SubscriptionID string }
 	}
 	if err := json.Unmarshal(raw, &selector); err != nil ||
 		selector.Grant.SubscriptionID == "" {
