@@ -200,7 +200,7 @@ func New(ctx context.Context, config *Config, dc dns.Client, validator vless.Val
 			user := &protocol.MemoryUser{
 				Email: p.Email,
 				Account: &vless.MemoryAccount{
-					ID: protocol.NewID(xrayuuid.UUID(id)),
+					ID:   protocol.NewID(xrayuuid.UUID(id)),
 					Flow: p.Flow,
 				},
 			}
