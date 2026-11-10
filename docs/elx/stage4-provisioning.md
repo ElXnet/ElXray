@@ -161,25 +161,64 @@ This section supersedes the previous "PREPARED only" description for the
 The opt-in continues to reject all managed VLESS payload until later
 device-proof/owner admission is implemented. Draft PRs stay unmerged.
 
-## P0 work still required before DONE
+## 2026-11-10 update: signed core proof and Control INSTALL queue
 
-1. Add *durably verified dynamic* VLESS `AddUser` through the dedicated
-   managed path, including signed flow configuration (Vision vs empty),
-   exact authorized inbound, readback and safe crash interruption.
-   `PREPARED` must never be mistaken for `INSTALLED`.
-2. Implement signed, independently core-attested `INSTALLED` receipt.
-   Control may advance its `INTENT` to `APPLIED` only after checking
-   exact operation/UUID, verified core incarnation, journal HWM and
-   live registered user. Lost ACK and uncertain outcomes stay pending.
-3. Implement safe profile update/retire, permanent tombstone and drain
-   across all matching inbounds/active flows, without unverified
-   release of owner or bandwidth.
-4. Protect managed restart and config reload from static JSON bypass,
-   restore installed mappings and verify crash/disk-full/fsync/replay.
-5. Pass CI gofumpt, Go tests, critical race/vet, PostgreSQL-backed
-   Control/core two-node E2E, wrong-node/executor and payload-denial
-   tests on the **paired Stage 4 heads**. Unsupported network tests
-   and external acceptance must remain explicitly NOT RUN when skipped.
+The paired draft branches now contain a more complete **non-admitting**
+technical INSTALL pipeline, pending CI and two-node integration validation:
 
-**Not merged.** Until all P0 gates are passed, Stage 4 remains
-`IN_PROGRESS` and production rollout is blocked.
+1. Control migration `024_vless_effective_uuid.sql` enforces normalized VLESS
+   UUID uniqueness without rewriting already-checksummed migration 023.
+   Migration `025_install_intents.sql` adds durable version-2 INSTALL intents
+   and signed flow. `QueueTechnicalInstall` reserves only an existing
+   prepared profile with current paid authority; `NextTechnicalInstall`
+   projects an exact, non-expired pending operation for the assigned
+   node/resource/executor.
+2. The Control server publishes `TechnicalInstallNext` over authenticated
+   mTLS, independently signs the v2 INSTALL, and the opt-in node agent
+   (`ELX_AGENT_TECHNICAL_INSTALL=1`) calls the protected local ElXray
+   `TechnicalProfile/Install` over Unix SO_PEERCRED. Enabling the agent
+   also requires `ELX_AGENT_TECHNICAL_PREPARE=1` and the already-pinned
+   Control lease key.
+3. The core journal records `INSTALLING` before AddUser and persists
+   `INSTALLED` after actual readback. Another protected local RPC
+   `TechnicalProfile/InstalledProof` signs a domain-separated
+   `elx-vless-installed-proof-v1` receipt with the core's own key, binding
+   install transcript, profile, operation, node/resource/executor,
+   authority generation, policy revision, durable store ID and core boot.
+4. Control accepts `TechnicalInstallConfirm` only from an authorized mTLS
+   node and checks the exact installed receipt against **independently
+   pinned** PostgreSQL `elx_core_identities` and
+   `elx_core_store_witnesses`. Only after verifying the Ed25519 signature,
+   immutable pending digest and expected store/boot does the same DB
+   transaction mark the technical operation `APPLIED` and profile
+   `installed`. This does not create a device/owner slot or permit payload.
+5. Paired tests cover v2 transcript goldens, replay, forged receipts,
+   different store/boot, alias UUIDs and durable INSTALL intents; the
+   PostgreSQL fixture now tests an atomic authentic receipt and idempotent
+   confirmation.
+
+A separate signed-usage scheduler E2E was failing because the fixture ran
+the `usage0/usage1` reporter processes as root despite a managed Unix
+Commander bound to the unprivileged `nobody` agent UID. The test fixture now
+demotes *both* node agent and signed-usage reporter before accessing the
+protected socket, instead of weakening SO_PEERCRED. Exact-head CI acceptance
+for this correction remains unconfirmed.
+
+### Remaining release-blocking gates
+
+- CI on the paired latest heads, including gofumpt, go vet, full Go/race tests,
+  Linux/Windows/macOS where applicable, PostgreSQL/real core protected-socket
+  two-node E2E and signed technical install/confirmation traffic denial
+- Durable reconcile of crashed `INSTALLING`, lost proof/ambiguous COMMIT,
+  and safe installed-user rehydration or quarantine after restart
+- Independently signed RETIRE/update, all-inbound lookup/flow drain and
+  permanent tombstones under untrusted stale Config/Control
+- Anti-bypass verification for static JSON, hot reload, rollback, duplicated
+  Control writers and hardware failures
+- Only after those gates pass: mark PRs ready and evaluate merge/deployment
+
+**DO NOT MERGE OR DEPLOY.** Stage 4 is still `IN_PROGRESS`;
+`ELXRAY_TECHNICAL_PROVISIONING=1` must not be enabled on production nodes.
+The Stage-4 technical user **never** authorizes VPN payload without later
+device proof and owner assignment.
+
