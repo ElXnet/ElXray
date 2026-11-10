@@ -176,7 +176,7 @@ func TestManagedRatesRejectUnsignedRaiseBetweenLeaseRenewals(t *testing.T) {
 	// Losing the enforcement lease cannot be bypassed by incrementing the
 	// revision under an older, still-signed but no longer installed ticket.
 	limit.RequireLease()
-	if _, err := m.UpdateSubscription(mk(5, 101, 200, false)); !errors.Is(err, subscriptionrate.ErrUnauthorized) {
+	if _, err := m.UpdateSubscription(mk(5, 101, 200, false)); !errors.Is(err, subscriptionrate.ErrLeaseCeiling) {
 		t.Fatalf("rate increased after lease was invalidated: %v", err)
 	}
 }
