@@ -71,15 +71,15 @@ func newFakeDrive(t *testing.T) *fakeDrive {
 	resetSharedStorage()
 
 	previous := []string{driveTokenURL, driveFilesURL, driveUploadURL}
-	previousBackoff := driveInitialBackoff
+	previousBackoff := driveInitialBackoff.Load()
 	driveTokenURL = drive.server.URL + "/token"
 	driveFilesURL = drive.server.URL + "/files"
 	driveUploadURL = drive.server.URL + "/upload"
-	driveInitialBackoff = 5 * time.Millisecond
+	driveInitialBackoff.Store(int64(5 * time.Millisecond))
 
 	t.Cleanup(func() {
 		driveTokenURL, driveFilesURL, driveUploadURL = previous[0], previous[1], previous[2]
-		driveInitialBackoff = previousBackoff
+		driveInitialBackoff.Store(previousBackoff)
 		drive.server.Close()
 		resetSharedStorage()
 	})
