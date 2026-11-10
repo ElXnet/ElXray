@@ -180,11 +180,15 @@ func (l *Limits) VerifiedLeaseDeadline() (time.Time, bool) {
 
 // RenewLease is called ONLY by the core's Ed25519-verifying policy manager.
 // The deadline is a wall-clock upper bound: replaying a signed ticket cannot
-// extend its original lifetime. It may only increase, never roll back.
+// extend its original lifetime. A newer, independently verified sequence may
+// carry the SAME second-resolution NotAfter; accept it without extending the
+// deadline. The policy manager enforces the signed monotonic sequence first.
+// A tripped or expired lease can never be re-admitted by an equal deadline.
 func (l *Limits) RenewLease(deadline time.Time) bool {
 	l.mu.Lock()
 	now := time.Now()
-	if !l.leaseRequired || !deadline.After(now) || !deadline.After(l.leaseDeadline) {
+	if !l.leaseRequired || !deadline.After(now) || deadline.Before(l.leaseDeadline) ||
+		(deadline.Equal(l.leaseDeadline) && l.leaseTripped) {
 		l.mu.Unlock()
 		return false
 	}
