@@ -114,7 +114,25 @@ func TestSignedControlLeaseRequiresNodeAndAbsoluteExpiry(t *testing.T) {
 	if err := m.RenewControlLease(sign(ticket)); err == nil {
 		t.Fatal("Control lease sequence replay accepted")
 	}
+	// Control signs sequence with nanosecond resolution, but NotAfter has
+	// SECOND resolution. New independently signed tickets can legitimately
+	// have identical expiry; accepting one must NOT extend that deadline.
+	originalDeadline, active := limit.VerifiedLeaseDeadline()
+	if !active {
+		t.Fatal("initial signed Control lease not active")
+	}
 	ticket.Sequence = 2
+	if err := m.RenewControlLease(sign(ticket)); err != nil {
+		t.Fatalf("new signed sequence with the same absolute expiry rejected: %v", err)
+	}
+	unchangedDeadline, active := limit.VerifiedLeaseDeadline()
+	if !active || !unchangedDeadline.Equal(originalDeadline) {
+		t.Fatalf("same-expiry signed renewal extended or disabled prior deadline: %v %v", unchangedDeadline, active)
+	}
+	if err := m.RenewControlLease(sign(ticket)); err == nil {
+		t.Fatal("identical sequence replay accepted after same-expiry renewal")
+	}
+	ticket.Sequence = 3
 	ticket.NotAfter = now + 16
 	tamper := sign(ticket)
 	tamper.NotAfter = now + 25
@@ -127,7 +145,7 @@ func TestSignedControlLeaseRequiresNodeAndAbsoluteExpiry(t *testing.T) {
 	}
 	// Replayed old grant generation with a NEW sequence is still invalid.
 	stale := ticket
-	stale.Sequence = 3
+	stale.Sequence = 4
 	stale.AuthorityGeneration = 6
 	if err := m.RenewControlLease(sign(stale)); err == nil {
 		t.Fatal("old authority generation lease accepted")
@@ -146,7 +164,7 @@ func TestSignedControlLeaseRequiresNodeAndAbsoluteExpiry(t *testing.T) {
 		transcript, proof[leaseAcceptanceBytes:]) {
 		t.Fatal("signed lease acceptance did not use the durable core key")
 	}
-	if binary.BigEndian.Uint64(data[32:40]) != 2 ||
+	if binary.BigEndian.Uint64(data[32:40]) != 3 ||
 		binary.BigEndian.Uint64(data[40:48]) != uint64(ticket.NotAfter) ||
 		binary.BigEndian.Uint64(data[48:56]) != 100 ||
 		binary.BigEndian.Uint64(data[56:64]) != 200 ||
