@@ -94,6 +94,28 @@ func vlessLookupKey(id string) string {
 	return id[:14] + "0000" + id[18:]
 }
 
+// ListTechnicalProfiles returns an immutable copy of authoritative
+// technical state for managed inbound construction. A corrupt journal
+// cannot supply apparently safe installed identities for a new core boot.
+func (j *Journal) ListTechnicalProfiles() ([]TechnicalProfile, error) {
+	if j == nil {
+		return nil, ErrInvalid
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.failed {
+		return nil, ErrCorrupt
+	}
+	out := make([]TechnicalProfile, 0, len(j.img.TechnicalProfiles))
+	for _, p := range j.img.TechnicalProfiles {
+		if !validTechnicalProfile(p) {
+			return nil, ErrCorrupt
+		}
+		out = append(out, p)
+	}
+	return out, nil
+}
+
 // RecordTechnicalPrepared durably records only a signature-verified,
 // exactly bound *preparation*. Callers must independently verify the pinned
 // Control key, node/executor/resource, the signed expiry and purchased grant.
