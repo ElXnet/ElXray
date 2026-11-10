@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/xtls/xray-core/common/dice"
@@ -35,8 +36,12 @@ var (
 	driveTokenURL       = "https://oauth2.googleapis.com/token"
 	driveFilesURL       = "https://www.googleapis.com/drive/v3/files"
 	driveUploadURL      = "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name"
-	driveInitialBackoff = 200 * time.Millisecond
+	driveInitialBackoff atomic.Int64 // nanoseconds; test overrides may overlap WAL readers
 )
+
+func init() {
+	driveInitialBackoff.Store(int64(200 * time.Millisecond))
+}
 
 type driveStorage struct {
 	*driveShared
@@ -95,7 +100,7 @@ func newDriveStorage(streamSettings *internet.MemoryStreamConfig, config *Config
 			tokenURL:     driveTokenURL,
 			filesURL:     driveFilesURL,
 			uploadURL:    driveUploadURL,
-			backoff:      driveInitialBackoff,
+			backoff:      time.Duration(driveInitialBackoff.Load()),
 			ids:          make(map[string]string),
 		},
 		client:   client,
