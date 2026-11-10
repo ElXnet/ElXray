@@ -84,13 +84,13 @@ func (m *Instance) RecoverTechnicalInstalledProof(profileID, operationID string)
 	}
 	proof := elxprovision.InstallReceipt{
 		Version: 1, OperationID: uuid.MustParse(operationID), ProfileID: id,
-		NodeID: uuid.MustParse(record.NodeID),
+		NodeID:     uuid.MustParse(record.NodeID),
 		ResourceID: uuid.MustParse(record.ResourceID),
 		ExecutorID: uuid.MustParse(record.ExecutorID),
-		StoreID: store, CoreIncarnation: boot,
+		StoreID:    store, CoreIncarnation: boot,
 		AuthorityGeneration: record.AuthorityGeneration,
-		PolicyRevision: record.PolicyRevision,
-		TranscriptSHA256: record.InstallTranscriptSHA256,
+		PolicyRevision:      record.PolicyRevision,
+		TranscriptSHA256:    record.InstallTranscriptSHA256,
 	}
 	proof.Signature = ed25519.Sign(m.store.key, proof.Transcript())
 	return proof, nil
@@ -130,14 +130,14 @@ func (m *Instance) RecoverTechnicalRetiredProof(profileID, operationID string) (
 	}
 	proof := elxprovision.RetireReceipt{
 		Version: 1, OperationID: uuid.MustParse(operationID), ProfileID: id,
-		NodeID: uuid.MustParse(record.NodeID),
+		NodeID:     uuid.MustParse(record.NodeID),
 		ResourceID: uuid.MustParse(record.ResourceID),
 		ExecutorID: uuid.MustParse(record.ExecutorID),
-		StoreID: store, CoreIncarnation: boot,
+		StoreID:    store, CoreIncarnation: boot,
 		AuthorityGeneration: record.AuthorityGeneration,
-		PolicyRevision: record.PolicyRevision,
-		RetireGeneration: record.RetireGeneration,
-		TranscriptSHA256: record.RetireTranscriptSHA256,
+		PolicyRevision:      record.PolicyRevision,
+		RetireGeneration:    record.RetireGeneration,
+		TranscriptSHA256:    record.RetireTranscriptSHA256,
 	}
 	proof.Signature = ed25519.Sign(m.store.key, proof.Transcript())
 	return proof, nil
