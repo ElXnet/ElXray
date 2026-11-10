@@ -183,12 +183,26 @@ func Open(path string) (*Journal, error) {
 			return nil, ErrCorrupt
 		}
 	}
+	// Verify the actual VLESS lookup identity, not just the printed UUID.
+	// A copy differing only in bytes 6 and 7 can impersonate another
+	// profile in proxy/vless.MemoryValidator.
+	effectiveIDs := make(map[string]bool)
 	for profile, gen := range s.DeniedProfiles {
 		if !uuidRE.MatchString(profile) || gen == 0 {
 			return nil, ErrCorrupt
 		}
+		key := vlessLookupKey(profile)
+		if effectiveIDs[key] {
+			return nil, ErrCorrupt
+		}
+		effectiveIDs[key] = true
 	}
 	for id, p := range s.TechnicalProfiles {
+		key := vlessLookupKey(id)
+		if effectiveIDs[key] {
+			return nil, ErrCorrupt
+		}
+		effectiveIDs[key] = true
 		if id != p.ProfileID || !validTechnicalProfile(p) ||
 			s.DeniedProfiles[id] != 0 || s.Revisions[p.ResourceID] < p.PolicyRevision ||
 			s.Generations[p.ResourceID] < p.AuthorityGeneration {
@@ -223,6 +237,11 @@ func (j *Journal) BootstrapDeniedProfiles(profiles []string) error {
 		if next.DeniedProfiles[profile] != 0 {
 			return ErrCollision
 		}
+		for existing := range next.DeniedProfiles {
+			if vlessLookupKey(existing) == vlessLookupKey(profile) {
+				return ErrCollision
+			}
+		}
 		next.DeniedProfiles[profile] = 1
 	}
 	if e := j.persist(next); e != nil {
@@ -254,6 +273,11 @@ func (j *Journal) BootstrapDeniedProfileGenerations(profiles map[string]uint64) 
 		if next.DeniedProfiles[profile] != 0 {
 			return ErrCollision
 		}
+		for existing := range next.DeniedProfiles {
+			if vlessLookupKey(existing) == vlessLookupKey(profile) {
+				return ErrCollision
+			}
+		}
 		next.DeniedProfiles[profile] = generation
 	}
 	if e := j.persist(next); e != nil {
@@ -280,6 +304,11 @@ func (j *Journal) RecordDeniedProfile(profile string, generation uint64) error {
 	}
 	if !uuidRE.MatchString(profile) || generation == 0 {
 		return ErrInvalid
+	}
+	for existing := range j.img.DeniedProfiles {
+		if existing != profile && vlessLookupKey(existing) == vlessLookupKey(profile) {
+			return ErrCollision
+		}
 	}
 	old := j.img.DeniedProfiles[profile]
 	if old > generation {
