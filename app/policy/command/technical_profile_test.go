@@ -2,8 +2,8 @@ package command
 
 import (
 	"context"
-	"testing"
 	"strings"
+	"testing"
 
 	"github.com/xtls/xray-core/common/elxjournal"
 	"github.com/xtls/xray-core/common/elxprovision"
@@ -62,7 +62,7 @@ func TestTechnicalProfileErrorsCannotMasqueradeAsAppliedReceipt(t *testing.T) {
 
 func TestTechnicalRecoverySelectorRejectsAmbiguousAndNonCanonicalOperations(t *testing.T) {
 	id := "11111111-1111-4111-8111-111111111111"
-	op := "22222222-2222-4222-8222-222222222222"
+	op := "22222222-2222-4222-8222-22222222222a"
 	if gotID, gotOp, err := technicalRecoveryIDs(id+"/"+op); err != nil || gotID != id || gotOp != op {
 		t.Fatalf("canonical read-only recovery IDs rejected: %q %q %v", gotID, gotOp, err)
 	}
