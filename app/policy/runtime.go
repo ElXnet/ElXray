@@ -110,16 +110,27 @@ func (m *Instance) updateSubscription(u subscriptionrate.Update, cmd *elxjournal
 				binding, bound := m.leaseBindings[u.ID]
 				t, ok := m.leaseAccepted[u.ID]
 				deadline, active := limits.VerifiedLeaseDeadline()
-				if !ok || !active || !deadline.After(time.Now().Add(time.Second)) ||
-					!bound || t.Version != 3 || t.NodeID != m.leaseNodeID ||
+				if !bound {
+					return subscriptionrate.Policy{}, subscriptionrate.ErrUnauthorized
+				}
+				if !ok || !active || !deadline.After(time.Now().Add(time.Second)) {
+					return subscriptionrate.Policy{}, subscriptionrate.ErrLeaseCeiling
+				}
+				// Distinguish an untrusted operation/authority binding
+				// from an otherwise valid request awaiting a newer signed
+				// speed ceiling. Control may retry ONLY the latter.
+				if t.Version != 3 || t.NodeID != m.leaseNodeID ||
 					t.ResourceID != binding.ResourceID || t.ExecutorID != binding.ExecutorID ||
 					t.AuthorityGeneration < binding.MinAuthorityGeneration ||
 					t.AuthorityGeneration != m.leaseGeneration[u.ID] ||
 					t.Subscription != u.ID || t.Sequence <= 0 ||
-					m.leaseSeq[u.ID] != t.Sequence || t.NotAfter <= time.Now().Unix()+1 ||
+					m.leaseSeq[u.ID] != t.Sequence {
+					return subscriptionrate.Policy{}, subscriptionrate.ErrUnauthorized
+				}
+				if t.NotAfter <= time.Now().Unix()+1 ||
 					t.CeilingUp <= 0 || t.CeilingDown <= 0 ||
 					u.UplinkBps > uint64(t.CeilingUp) || u.DownlinkBps > uint64(t.CeilingDown) {
-					return subscriptionrate.Policy{}, subscriptionrate.ErrUnauthorized
+					return subscriptionrate.Policy{}, subscriptionrate.ErrLeaseCeiling
 				}
 			}
 		}
