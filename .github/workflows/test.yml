@@ -32,6 +32,8 @@ jobs:
           go-version-file: go.mod
           check-latest: true
           cache: false
+      - name: Check local stage-3 shell scripts
+        run: bash -n scripts/check-stage3-local.sh scripts/prepare-stage3-test-assets.sh
       - name: Check Format
         run: go run ./infra/vformat/main.go -mode dryrun -pwd ./
       - name: Check Protobuf
