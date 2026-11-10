@@ -6,12 +6,15 @@ import (
 	"github.com/xtls/xray-core/app/commander"
 	"github.com/xtls/xray-core/common"
 	"github.com/xtls/xray-core/common/errors"
+	"github.com/xtls/xray-core/common/elxsecurity"
 	"github.com/xtls/xray-core/common/protocol"
 	"github.com/xtls/xray-core/core"
 	"github.com/xtls/xray-core/features/inbound"
 	"github.com/xtls/xray-core/features/outbound"
 	"github.com/xtls/xray-core/proxy"
 	grpc "google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // InboundOperation is the interface for operations that applies to inbound handlers.
@@ -36,6 +39,9 @@ func getInbound(handler inbound.Handler) (proxy.Inbound, error) {
 
 // ApplyInbound implements InboundOperation.
 func (op *AddUserOperation) ApplyInbound(ctx context.Context, handler inbound.Handler) error {
+	if elxsecurity.Managed() {
+		return status.Error(codes.PermissionDenied, "managed technical mutation requires durable Control-authorized provisioning")
+	}
 	p, err := getInbound(handler)
 	if err != nil {
 		return err
@@ -53,6 +59,9 @@ func (op *AddUserOperation) ApplyInbound(ctx context.Context, handler inbound.Ha
 
 // ApplyInbound implements InboundOperation.
 func (op *RemoveUserOperation) ApplyInbound(ctx context.Context, handler inbound.Handler) error {
+	if elxsecurity.Managed() {
+		return status.Error(codes.PermissionDenied, "managed technical mutation requires durable Control-authorized provisioning")
+	}
 	p, err := getInbound(handler)
 	if err != nil {
 		return err
@@ -71,6 +80,9 @@ type handlerServer struct {
 }
 
 func (s *handlerServer) AddInbound(ctx context.Context, request *AddInboundRequest) (*AddInboundResponse, error) {
+	if elxsecurity.Managed() {
+		return nil, status.Error(codes.PermissionDenied, "managed technical mutation requires durable Control-authorized provisioning")
+	}
 	if err := core.AddInboundHandler(s.s, request.Inbound); err != nil {
 		return nil, err
 	}
@@ -79,10 +91,16 @@ func (s *handlerServer) AddInbound(ctx context.Context, request *AddInboundReque
 }
 
 func (s *handlerServer) RemoveInbound(ctx context.Context, request *RemoveInboundRequest) (*RemoveInboundResponse, error) {
+	if elxsecurity.Managed() {
+		return nil, status.Error(codes.PermissionDenied, "managed technical mutation requires durable Control-authorized provisioning")
+	}
 	return &RemoveInboundResponse{}, s.ihm.RemoveHandler(ctx, request.Tag)
 }
 
 func (s *handlerServer) AlterInbound(ctx context.Context, request *AlterInboundRequest) (*AlterInboundResponse, error) {
+	if elxsecurity.Managed() {
+		return nil, status.Error(codes.PermissionDenied, "managed technical mutation requires durable Control-authorized provisioning")
+	}
 	rawOperation, err := request.Operation.GetInstance()
 	if err != nil {
 		return nil, errors.New("unknown operation").Base(err)
@@ -163,6 +181,9 @@ func (s *handlerServer) GetInboundUsersCount(ctx context.Context, request *GetIn
 }
 
 func (s *handlerServer) AddOutbound(ctx context.Context, request *AddOutboundRequest) (*AddOutboundResponse, error) {
+	if elxsecurity.Managed() {
+		return nil, status.Error(codes.PermissionDenied, "managed technical mutation requires durable Control-authorized provisioning")
+	}
 	if err := core.AddOutboundHandler(s.s, request.Outbound); err != nil {
 		return nil, err
 	}
@@ -170,10 +191,16 @@ func (s *handlerServer) AddOutbound(ctx context.Context, request *AddOutboundReq
 }
 
 func (s *handlerServer) RemoveOutbound(ctx context.Context, request *RemoveOutboundRequest) (*RemoveOutboundResponse, error) {
+	if elxsecurity.Managed() {
+		return nil, status.Error(codes.PermissionDenied, "managed technical mutation requires durable Control-authorized provisioning")
+	}
 	return &RemoveOutboundResponse{}, s.ohm.RemoveHandler(ctx, request.Tag)
 }
 
 func (s *handlerServer) AlterOutbound(ctx context.Context, request *AlterOutboundRequest) (*AlterOutboundResponse, error) {
+	if elxsecurity.Managed() {
+		return nil, status.Error(codes.PermissionDenied, "managed technical mutation requires durable Control-authorized provisioning")
+	}
 	rawOperation, err := request.Operation.GetInstance()
 	if err != nil {
 		return nil, errors.New("unknown operation").Base(err)
