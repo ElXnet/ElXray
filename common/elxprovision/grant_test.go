@@ -164,3 +164,44 @@ func TestSignedGrantRegistryRejectsEffectiveVLESSUUIDAlias(t *testing.T) {
 		t.Fatal("aliased signed profile replaced original")
 	}
 }
+
+func TestSignedInstallGrantV2PinsVLESSFlow(t *testing.T) {
+	g, privateKey := testGrant(t)
+	g.Version = 2
+	g.Action = Install
+	g.Flow = "xtls-rprx-vision"
+	g.Signature = ed25519.Sign(privateKey, g.Transcript())
+	const expected = "0584a0a5bab7efee61d1c244cf0ec45deea7730f0dbe562c15c564273f3d033a"
+	digest := sha256.Sum256(g.Transcript())
+	if hex.EncodeToString(digest[:]) != expected {
+		t.Fatalf("Control/core signed install flow diverged: %x", digest)
+	}
+	now := time.Unix(1700000008, 0)
+	pub := privateKey.Public().(ed25519.PublicKey)
+	if err := Verify(g, pub, g.NodeID, g.ExecutorID, g.ResourceID, now); err != nil {
+		t.Fatalf("signed v2 install rejected: %v", err)
+	}
+	registry, err := New(pub, g.NodeID, g.ExecutorID, g.ResourceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Stage(g, now); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("INSTALL bypassed dedicated durable mutation path: %v", err)
+	}
+	changed := g
+	changed.Flow = ""
+	if err := Verify(changed, pub, g.NodeID, g.ExecutorID, g.ResourceID, now); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("unsigned flow change accepted: %v", err)
+	}
+	changed = g
+	changed.Flow = "invalid-flow"
+	changed.Signature = ed25519.Sign(privateKey, changed.Transcript())
+	if err := Verify(changed, pub, g.NodeID, g.ExecutorID, g.ResourceID, now); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("unsupported VLESS flow accepted: %v", err)
+	}
+	changed = g
+	changed.Version = 1
+	if err := Verify(changed, pub, g.NodeID, g.ExecutorID, g.ResourceID, now); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("downgraded install action accepted: %v", err)
+	}
+}
