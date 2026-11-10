@@ -172,3 +172,58 @@ func TestTechnicalProfileRejectsVLESSNormalizedUUIDAlias(t *testing.T) {
 		t.Fatalf("duplicate tombstone key undermines future restore validation: %v", err)
 	}
 }
+
+func TestTechnicalInstallIntentCrashReplayAndCompletion(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("managed durable journal requires Unix directory fsync")
+	}
+	path := filepath.Join(t.TempDir(), "managed.json")
+	if err := Provision(path, uuid.NewString()); err != nil {
+		t.Fatal(err)
+	}
+	j, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := technicalFixture()
+	if err := j.BootstrapResource(p.ResourceID, p.PolicyRevision, p.AuthorityGeneration); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.RecordTechnicalPrepared(p); err != nil {
+		t.Fatal(err)
+	}
+	op := uuid.NewString()
+	h := sha256.Sum256([]byte("signed-v2-install-transcript"))
+	digest := hex.EncodeToString(h[:])
+	if _, err := j.BeginTechnicalInstall(p.ProfileID, op, digest, "xtls-rprx-vision", p.PolicyRevision, p.AuthorityGeneration); err != nil {
+		t.Fatal(err)
+	}
+	if !j.HasPending() {
+		t.Fatal("interrupted VLESS install was not marked uncertain")
+	}
+	restored, err := Open(path)
+	if err != nil || !restored.HasPending() {
+		t.Fatalf("reboot lost pending live install fence: %v", err)
+	}
+	if _, err := restored.BeginTechnicalInstall(p.ProfileID, op, digest, "xtls-rprx-vision", p.PolicyRevision, p.AuthorityGeneration); !errors.Is(err, ErrUncertain) {
+		t.Fatalf("uncertain install retried without live readback: %v", err)
+	}
+	if _, err := restored.MarkTechnicalInstalled(p.ProfileID, uuid.NewString()); !errors.Is(err, ErrStale) {
+		t.Fatalf("wrong install operation produced INSTALLED: %v", err)
+	}
+	// Production code only calls Mark after live VLESS GetUser succeeds.
+	done, err := restored.MarkTechnicalInstalled(p.ProfileID, op)
+	if err != nil || done.Phase != "INSTALLED" || done.Flow != "xtls-rprx-vision" {
+		t.Fatalf("live-verified install did not persist: %+v %v", done, err)
+	}
+	reopened, err := Open(path)
+	if err != nil || reopened.HasPending() {
+		t.Fatalf("verified install remained an unknown mutation: %v", err)
+	}
+	if saved, ok := reopened.TechnicalProfile(p.ProfileID); !ok || saved != done {
+		t.Fatalf("installed technical identity not restored: %+v %v", saved, ok)
+	}
+	if _, err := reopened.BeginTechnicalInstall(p.ProfileID, uuid.NewString(), digest, "xtls-rprx-vision", p.PolicyRevision, p.AuthorityGeneration); !errors.Is(err, ErrCollision) {
+		t.Fatalf("new operation reused installed identity: %v", err)
+	}
+}
