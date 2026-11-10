@@ -69,6 +69,7 @@ type image struct {
 	Generations    map[string]uint64         `json:"generations"`
 	Leases         map[string]LeaseWatermark `json:"leases"`
 	DeniedProfiles map[string]uint64         `json:"deniedProfiles"`
+	TechnicalProfiles map[string]TechnicalProfile `json:"technicalProfiles,omitempty"`
 }
 type anchor struct {
 	Version     int    `json:"version"`
@@ -126,6 +127,7 @@ func snapshot(s image) image {
 	s.Generations = maps.Clone(s.Generations)
 	s.Leases = maps.Clone(s.Leases)
 	s.DeniedProfiles = maps.Clone(s.DeniedProfiles)
+	s.TechnicalProfiles = maps.Clone(s.TechnicalProfiles)
 	return s
 }
 
@@ -186,6 +188,13 @@ func Open(path string) (*Journal, error) {
 			return nil, ErrCorrupt
 		}
 	}
+	for id, p := range s.TechnicalProfiles {
+		if id != p.ProfileID || !validTechnicalProfile(p) ||
+			s.DeniedProfiles[id] != 0 || s.Revisions[p.ResourceID] < p.PolicyRevision ||
+			s.Generations[p.ResourceID] < p.AuthorityGeneration {
+			return nil, ErrCorrupt
+		}
+	}
 	for id, r := range s.Operations {
 		if id != r.OperationID || !validCommand(r.Command) || (r.State != "INTENT" && r.State != "APPLIED") {
 			return nil, ErrCorrupt
@@ -203,7 +212,7 @@ func (j *Journal) BootstrapDeniedProfiles(profiles []string) error {
 	if j.failed {
 		return ErrCorrupt
 	}
-	if len(j.img.Operations) > 0 || len(j.img.Leases) > 0 {
+	if len(j.img.Operations) > 0 || len(j.img.Leases) > 0 || len(j.img.TechnicalProfiles) > 0 {
 		return ErrUncertain
 	}
 	next := snapshot(j.img)
@@ -234,7 +243,7 @@ func (j *Journal) BootstrapDeniedProfileGenerations(profiles map[string]uint64) 
 	if j.failed {
 		return ErrCorrupt
 	}
-	if len(j.img.Operations) > 0 || len(j.img.Leases) > 0 {
+	if len(j.img.Operations) > 0 || len(j.img.Leases) > 0 || len(j.img.TechnicalProfiles) > 0 {
 		return ErrUncertain
 	}
 	next := snapshot(j.img)
