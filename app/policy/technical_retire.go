@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -92,13 +93,45 @@ func (m *Instance) RetireTechnicalProfile(raw []byte) (elxjournal.TechnicalProfi
 		!hasLiveUser {
 		return empty, elxjournal.ErrCollision
 	}
+	if m.profileGate == nil {
+		return empty, elxjournal.ErrUncertain
+	}
 	if _, err := m.opJournal.BeginTechnicalRetire(grant.ProfileID.String(),
 		grant.OperationID.String(), digestHex, grant.ProfileGeneration,
 		grant.PolicyRevision, grant.AuthorityGeneration); err != nil {
 		return empty, err
 	}
-	// Failure after this point is uncertain: tombstone persists but the live
-	// account might have been removed or retained. Operator must reconcile.
+	// Only AFTER the fsynced tombstone, deny the authenticated VLESS UUID
+	// globally, across every inbound sharing the same tracked profile.
+	// Deleting the VLESS validator entry alone does not close existing TCP
+	// sessions. Follow the same stop-and-wait fence as Stage 3 profile drain.
+	stops, err := m.profileGate.Deny([16]byte(grant.ProfileID))
+	if err != nil {
+		m.store.failed = true
+		return empty, elxjournal.ErrUncertain
+	}
+	if err := m.store.write(m.subscriptionPolicies, m.profileGate.Denied()); err != nil {
+		m.store.failed = true
+		return empty, elxjournal.ErrUncertain
+	}
+	// Stop and Wait must run outside the subscription mutex: active inbound
+	// teardown can require policy/limiter locks, and the core must not
+	// deadlock trying to revoke a live technical identity.
+	m.subscriptionMu.Unlock()
+	for _, stop := range stops {
+		stop()
+	}
+	drainCtx, cancel := context.WithTimeout(m.runtimeContext, 25*time.Second)
+	drainErr := m.profileGate.Wait(drainCtx, [16]byte(grant.ProfileID))
+	cancel()
+	m.subscriptionMu.Lock()
+	if drainErr != nil || m.store.failed ||
+		!m.profileGate.IsDenied([16]byte(grant.ProfileID)) {
+		m.store.failed = true
+		return empty, elxjournal.ErrUncertain
+	}
+	// Failure after this point remains uncertain until Control independently
+	// receives signed proof. No retry may synthesize absence or free slots.
 	if hasLiveUser {
 		if err := handler.RemoveUser(m.runtimeContext, grant.Email); err != nil {
 			m.store.failed = true
