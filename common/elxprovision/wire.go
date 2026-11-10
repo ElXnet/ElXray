@@ -29,6 +29,9 @@ func DecodeControlJob(raw []byte, publicKey ed25519.PublicKey,
 	if len(raw) == 0 || len(raw) > 4096 {
 		return Grant{}, ErrInvalid
 	}
+	if err := rejectDuplicateJSONKeys(raw); err != nil {
+		return Grant{}, ErrInvalid
+	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	var envelope ControlJob
