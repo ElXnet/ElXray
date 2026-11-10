@@ -24,6 +24,7 @@ import (
 
 // Instance is an instance of Policy manager.
 type Instance struct {
+	runtimeContext        context.Context
 	unmanaged             *subscriptionrate.Limits
 	levels                map[uint32]*Policy
 	system                *SystemPolicy
@@ -114,6 +115,7 @@ func New(ctx context.Context, config *Config) (*Instance, error) {
 		return nil, err
 	}
 	m := &Instance{
+		runtimeContext: ctx,
 		levels:                make(map[uint32]*Policy),
 		system:                config.System,
 		subscriptions:         subscriptions,
