@@ -46,6 +46,16 @@ func validTechnicalProfile(p TechnicalProfile) bool {
 		hex.EncodeToString(digest) == p.TranscriptSHA256
 }
 
+// vlessLookupKey mirrors proxy/vless.ProcessUUID: the third UUID group
+// represents bytes 6 and 7, both ignored by VLESS's effective user lookup.
+// We must reject aliases here, before a prepared profile reaches AddUser.
+func vlessLookupKey(id string) string {
+	if !uuidRE.MatchString(id) {
+		return ""
+	}
+	return id[:14] + "0000" + id[18:]
+}
+
 // RecordTechnicalPrepared durably records only a signature-verified,
 // exactly bound *preparation*. Callers must independently verify the pinned
 // Control key, node/executor/resource, the signed expiry and purchased grant.
@@ -61,17 +71,23 @@ func (j *Journal) RecordTechnicalPrepared(p TechnicalProfile) error {
 	if j.failed {
 		return ErrCorrupt
 	}
+	lookupKey := vlessLookupKey(p.ProfileID)
+	// Denied aliases and IDs are permanent even when a caller retries the
+	// originally valid preparation after the owner was revoked.
+	for deniedID := range j.img.DeniedProfiles {
+		if vlessLookupKey(deniedID) == lookupKey {
+			return ErrStale
+		}
+	}
 	if existing, ok := j.img.TechnicalProfiles[p.ProfileID]; ok {
 		if existing == p {
 			return nil
 		}
 		return ErrCollision
 	}
-	if j.img.DeniedProfiles[p.ProfileID] != 0 {
-		return ErrStale
-	}
 	for _, previous := range j.img.TechnicalProfiles {
-		if previous.OperationID == p.OperationID ||
+		if vlessLookupKey(previous.ProfileID) == lookupKey ||
+			previous.OperationID == p.OperationID ||
 			(previous.NodeID == p.NodeID &&
 				previous.ExecutorID == p.ExecutorID &&
 				previous.InboundTag == p.InboundTag &&
