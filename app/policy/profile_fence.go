@@ -38,6 +38,16 @@ func (m *Instance) DrainVLESSProfile(ctx context.Context, request policy.Profile
 		m.subscriptionMu.Unlock()
 		return nil, errors.New("durable ElXray session drain unavailable")
 	}
+	// Persist an immutable profile-denial tombstone BEFORE issuing the
+	// in-memory drain. A v2 snapshot restored without this tombstone must
+	// never reactivate a VLESS profile previously denied by Control.
+	if m.opJournal != nil {
+		if err := m.opJournal.RecordDeniedProfile(request.ProfileID.String(), uint64(request.Generation)); err != nil {
+			m.store.failed = true
+			m.subscriptionMu.Unlock()
+			return nil, fmt.Errorf("cannot persist managed profile tombstone: %w", err)
+		}
+	}
 	stops, err := m.profileGate.Deny([16]byte(request.ProfileID))
 	if err != nil {
 		m.subscriptionMu.Unlock()

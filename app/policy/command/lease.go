@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 
+	"google.golang.org/grpc/metadata"
+
 	apppolicy "github.com/xtls/xray-core/app/policy"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -34,8 +36,29 @@ func (r *leaseReceiver) renew(ctx context.Context, raw *wrapperspb.BytesValue) (
 	if json.Unmarshal(raw.GetValue(), &lease) != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid signed Control lease")
 	}
-	if err := r.manager.RenewControlLease(lease); err != nil {
-		return nil, status.Error(codes.PermissionDenied, "Control lease signature, node or expiry invalid")
+	md, ok := metadata.FromIncomingContext(ctx)
+	var err error
+	if ok && len(md.Get("elx-store-witness-bin")) != 0 {
+		values := md.Get("elx-store-witness-bin")
+		if len(values) != 1 || len(values[0]) > 2048 {
+			return nil, status.Error(codes.InvalidArgument, "invalid signed Control store witness metadata")
+		}
+		var witness apppolicy.SignedStoreWitness
+		if json.Unmarshal([]byte(values[0]), &witness) != nil {
+			return nil, status.Error(codes.InvalidArgument, "malformed Control store witness")
+		}
+		receiver, valid := r.manager.(interface {
+			RenewControlLeaseWithWitness(apppolicy.ControlLease, apppolicy.SignedStoreWitness) error
+		})
+		if !valid {
+			return nil, status.Error(codes.FailedPrecondition, "store witness admission unsupported")
+		}
+		err = receiver.RenewControlLeaseWithWitness(lease, witness)
+	} else {
+		err = r.manager.RenewControlLease(lease)
+	}
+	if err != nil {
+		return nil, status.Error(codes.PermissionDenied, "Control lease or independent store HWM not accepted")
 	}
 	return &emptypb.Empty{}, nil
 }

@@ -43,6 +43,16 @@ func ControlLeaseTranscript(t ControlLease) []byte {
 // RenewControlLease verifies a server-signed ticket, enforces a short absolute
 // lifetime, and only advances the deadline. A stale replay cannot move it.
 func (m *Instance) RenewControlLease(t ControlLease) error {
+	return m.renewControlLease(t, nil)
+}
+
+// RenewControlLeaseWithWitness is the mandatory stage-3 managed path. A
+// signed Control lease alone cannot prove a recovered disk is current.
+func (m *Instance) RenewControlLeaseWithWitness(t ControlLease, w SignedStoreWitness) error {
+	return m.renewControlLease(t, &w)
+}
+
+func (m *Instance) renewControlLease(t ControlLease, w *SignedStoreWitness) error {
 	if len(m.leasePublicKey) != ed25519.PublicKeySize {
 		return errors.New("Control lease enforcement is not configured")
 	}
@@ -68,6 +78,11 @@ func (m *Instance) RenewControlLease(t ControlLease) error {
 	if !ok || len(p.Emails) == 0 {
 		return errors.New("unknown managed lease subscription")
 	}
+	// Compare a short-lived Control-signed independently persisted HWM
+	// against the recovered journal BEFORE installing any paid lease.
+	if err := m.verifyStoreWitnessLocked(t, w); err != nil {
+		return err
+	}
 	// A valid signature is not sufficient if the running core is configured
 	// above its actual reserved grant: never enable higher uncommitted rates.
 	if p.UplinkBps > uint64(t.CeilingUp) || p.DownlinkBps > uint64(t.CeilingDown) {
@@ -82,6 +97,17 @@ func (m *Instance) RenewControlLease(t ControlLease) error {
 	limits := m.subscriptions[strings.ToLower(p.Emails[0])]
 	if limits == nil {
 		return errors.New("unprovisioned subscription lease")
+	}
+	// Persist the HWM BEFORE installing a newly verified lease in the
+	// data-plane limiter. If persistence fails, fail closed and close all
+	// tracked flows; a delivery ACK never outruns durable anti-replay state.
+	if m.opJournal != nil {
+		if err := m.opJournal.RecordVerifiedLease(t.ResourceID.String(), t.AuthorityGeneration, t.Sequence, t.NotAfter); err != nil {
+			m.store.failed = true
+			limits.RequireLease()
+			limits.Update(p.UplinkBps, p.DownlinkBps, true)
+			return fmt.Errorf("cannot durably record signed Control lease: %w", err)
+		}
 	}
 	// Convert the signed wall-clock expiry to a monotonic local deadline.
 	// Do not acknowledge a ticket until the limiter accepted that deadline.

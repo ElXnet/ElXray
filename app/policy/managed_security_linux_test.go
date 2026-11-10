@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -16,10 +17,19 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/xtls/xray-core/common/elxjournal"
 	"github.com/xtls/xray-core/common/subscriptionrate"
 )
 
 func newManagedTestPolicy(t *testing.T) (*Instance, ed25519.PrivateKey, uuid.UUID) {
+	return buildManagedTestPolicy(t, false)
+}
+
+func newManagedTestPolicyWithJournal(t *testing.T) (*Instance, ed25519.PrivateKey, uuid.UUID) {
+	return buildManagedTestPolicy(t, true)
+}
+
+func buildManagedTestPolicy(t *testing.T, durable bool) (*Instance, ed25519.PrivateKey, uuid.UUID) {
 	t.Helper()
 	pub, signer, err := ed25519.GenerateKey(nil)
 	if err != nil {
@@ -31,7 +41,12 @@ func newManagedTestPolicy(t *testing.T) (*Instance, ed25519.PrivateKey, uuid.UUI
 	}
 	node := uuid.New()
 	path := filepath.Join(t.TempDir(), "state.json")
-	if err := os.WriteFile(path, []byte(`{"Version":1}`), 0o600); err != nil {
+	storeID := uuid.NewString()
+	manifest := []byte(`{"Version":1}`)
+	if durable {
+		manifest = []byte(fmt.Sprintf(`{"Version":2,"StoreID":%q}`, storeID))
+	}
+	if err := os.WriteFile(path, manifest, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(path+".key", []byte(hex.EncodeToString(coreKey.Seed())), 0o600); err != nil {
@@ -40,6 +55,15 @@ func newManagedTestPolicy(t *testing.T) (*Instance, ed25519.PrivateKey, uuid.UUI
 	t.Setenv("ELXRAY_MODE", "managed")
 	t.Setenv("ELXRAY_REQUIRE_CONTROL_LEASE", "1")
 	t.Setenv("ELXRAY_POLICY_STATE", path)
+	journalPath := path + ".ops"
+	if durable {
+		if err := elxjournal.Provision(journalPath, storeID); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("ELXRAY_OP_JOURNAL", journalPath)
+	} else {
+		t.Setenv("ELXRAY_OP_JOURNAL", "")
+	}
 	t.Setenv("ELXRAY_CONTROL_LEASE_PUBLIC_KEY", base64.StdEncoding.EncodeToString(pub))
 	t.Setenv("ELXRAY_CONTROL_LEASE_NODE_UUID", node.String())
 	resource := uuid.New()
@@ -55,6 +79,15 @@ func newManagedTestPolicy(t *testing.T) (*Instance, ed25519.PrivateKey, uuid.UUI
 		t.Fatal(err)
 	}
 	t.Setenv("ELXRAY_CONTROL_LEASE_BINDINGS_FILE", bindings)
+	if durable {
+		j, err := elxjournal.Open(journalPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := j.BootstrapResource(resource.String(), 1, 8); err != nil {
+			t.Fatal(err)
+		}
+	}
 	t.Setenv("ELXRAY_AGENT_UID", strconv.Itoa(os.Geteuid()+42))
 	t.Setenv("ELXRAY_AGENT_GID", "65534")
 	m, err := New(context.Background(), &Config{RequireSubscription: true, Subscriptions: map[string]*SubscriptionPolicy{
@@ -146,7 +179,7 @@ func TestManagedRatesRejectUnsignedRaiseBetweenLeaseRenewals(t *testing.T) {
 func TestManagedBootRejectsMissingModeAndLeaseFlag(t *testing.T) {
 	if _, err := New(context.Background(), &Config{
 		RequireSubscription: true,
-		Subscriptions: map[string]*SubscriptionPolicy{"lab": {Emails: []string{"member"}, UplinkBps: 1, DownlinkBps: 1}},
+		Subscriptions:       map[string]*SubscriptionPolicy{"lab": {Emails: []string{"member"}, UplinkBps: 1, DownlinkBps: 1}},
 	}); err == nil {
 		t.Fatal("managed subscriptions started without an explicit execution mode")
 	}
@@ -175,5 +208,110 @@ func TestManagedStartupRejectsUnlimitedEvenWithValidIdentity(t *testing.T) {
 		if err == nil {
 			t.Fatalf("managed zero/unlimited startup accepted rates: %v", rates)
 		}
+	}
+}
+
+func testStoreWitness(m *Instance, lease ControlLease, signer ed25519.PrivateKey) SignedStoreWitness {
+	revision, _, ok := m.opJournal.ResourceState(lease.ResourceID.String())
+	if !ok {
+		panic("test missing journal baseline")
+	}
+	nonce, err := m.ManagedWitnessNonce("lab")
+	if err != nil {
+		panic(err)
+	}
+	now := time.Now().Unix()
+	w := SignedStoreWitness{
+		Version: 2, NodeID: lease.NodeID.String(), ResourceID: lease.ResourceID.String(),
+		ExecutorID: lease.ExecutorID.String(), StoreID: m.opJournal.StoreID(),
+		TombstonesSHA256:    deniedProfileDigest(m.opJournal.DeniedProfiles()),
+		AuthorityGeneration: lease.AuthorityGeneration, CoreRevision: revision, Nonce: nonce,
+		NotBefore: now, NotAfter: now + 15,
+	}
+	w.Signature = ed25519.Sign(signer, StoreWitnessTranscript(w))
+	return w
+}
+
+func TestManagedLeaseHighWaterIsDurableAcrossRestart(t *testing.T) {
+	m, signer, node := newManagedTestPolicyWithJournal(t)
+	binding := m.leaseBindings["lab"]
+	now := time.Now().Unix()
+	lease := ControlLease{
+		Version: 3, NodeID: node, ResourceID: binding.ResourceID,
+		ExecutorID: binding.ExecutorID, AuthorityGeneration: 8,
+		Subscription: "lab", Sequence: 100,
+		NotBefore: now, NotAfter: now + 15, CeilingUp: 100, CeilingDown: 200,
+	}
+	lease.Signature = ed25519.Sign(signer, ControlLeaseTranscript(lease))
+	if err := m.RenewControlLeaseWithWitness(lease, testStoreWitness(m, lease, signer)); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Close(); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &Config{RequireSubscription: true, Subscriptions: map[string]*SubscriptionPolicy{
+		"lab": {Emails: []string{"user"}, UplinkBps: 100, DownlinkBps: 200, Revision: 1},
+	}}
+	restarted, err := New(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restarted.Close()
+	if err := restarted.RenewControlLeaseWithWitness(lease, testStoreWitness(restarted, lease, signer)); err == nil {
+		t.Fatal("accepted previously signed Control sequence after core restart")
+	}
+	lease.Sequence = 101
+	lease.NotAfter = now + 16
+	lease.Signature = ed25519.Sign(signer, ControlLeaseTranscript(lease))
+	if err := restarted.RenewControlLeaseWithWitness(lease, testStoreWitness(restarted, lease, signer)); err != nil {
+		t.Fatalf("fresh signed v3 lease after restart rejected: %v", err)
+	}
+}
+
+func TestManagedCorruptJournalCannotStart(t *testing.T) {
+	m, _, _ := newManagedTestPolicyWithJournal(t)
+	if err := m.Close(); err != nil {
+		t.Fatal(err)
+	}
+	path := os.Getenv("ELXRAY_OP_JOURNAL")
+	if err := os.WriteFile(path+".anchor", []byte("torn"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := New(context.Background(), &Config{RequireSubscription: true, Subscriptions: map[string]*SubscriptionPolicy{
+		"lab": {Emails: []string{"user"}, UplinkBps: 100, DownlinkBps: 200, Revision: 1},
+	}}); err == nil {
+		t.Fatal("corrupt durable operation watermark silently reopened paid node")
+	}
+}
+
+func TestManagedCoreRejectsIndependentProfileTombstoneRollback(t *testing.T) {
+	m, signer, node := newManagedTestPolicyWithJournal(t)
+	defer m.Close()
+	binding := m.leaseBindings["lab"]
+	now := time.Now().Unix()
+	lease := ControlLease{
+		Version: 3, NodeID: node, ResourceID: binding.ResourceID,
+		ExecutorID: binding.ExecutorID, AuthorityGeneration: 8, Subscription: "lab",
+		Sequence: 20, NotBefore: now, NotAfter: now + 15,
+		CeilingUp: 100, CeilingDown: 200,
+	}
+	lease.Signature = ed25519.Sign(signer, ControlLeaseTranscript(lease))
+	witness := testStoreWitness(m, lease, signer)
+	witness.TombstonesSHA256 = "0000000000000000000000000000000000000000000000000000000000000000"
+	witness.Signature = ed25519.Sign(signer, StoreWitnessTranscript(witness))
+	if err := m.RenewControlLeaseWithWitness(lease, witness); err == nil {
+		t.Fatal("core accepted a validly signed Control witness without matching denial HWM")
+	}
+	profile := uuid.NewString()
+	if err := m.opJournal.RecordDeniedProfile(profile, 10); err != nil {
+		t.Fatal(err)
+	}
+	// A previously valid Control witness for the original empty denial
+	// set cannot admit a core whose journal now contains another revocation.
+	witness = testStoreWitness(m, lease, signer)
+	witness.TombstonesSHA256 = "eab4b2179450179f4800ff300bcc16116728c6dd60bf5ea2e10020b9ef0f5693"
+	witness.Signature = ed25519.Sign(signer, StoreWitnessTranscript(witness))
+	if err := m.RenewControlLeaseWithWitness(lease, witness); err == nil {
+		t.Fatal("valid signature with stale profile deny set admitted paid traffic")
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/xtls/xray-core/common"
+	"github.com/xtls/xray-core/common/elxjournal"
 	"github.com/xtls/xray-core/common/elxsecurity"
 	"github.com/xtls/xray-core/common/sessionfence"
 	"github.com/xtls/xray-core/common/subscriptionrate"
@@ -29,6 +30,7 @@ type Instance struct {
 	subscriptions        map[string]*subscriptionrate.Limits
 	subscriptionMu       sync.Mutex
 	store                *policyStore
+	opJournal            *elxjournal.Journal
 	usageIncarnation     [16]byte
 	usageSequences       map[string]uint64
 	subscriptionPolicies map[string]subscriptionrate.Policy
@@ -60,7 +62,7 @@ func New(ctx context.Context, config *Config) (*Instance, error) {
 	// standalone if a single lease flag, key, node or agent identity is lost.
 	managedHints := []string{
 		"ELXRAY_REQUIRE_CONTROL_LEASE", "ELXRAY_CONTROL_LEASE_PUBLIC_KEY",
-		"ELXRAY_CONTROL_LEASE_NODE_UUID", "ELXRAY_CONTROL_LEASE_BINDINGS_FILE",
+		"ELXRAY_CONTROL_LEASE_NODE_UUID", "ELXRAY_CONTROL_LEASE_BINDINGS_FILE", "ELXRAY_OP_JOURNAL",
 		"ELXRAY_AGENT_UID", "ELXRAY_AGENT_GID",
 	}
 	if mode != "managed" {
@@ -144,6 +146,19 @@ func New(ctx context.Context, config *Config) (*Instance, error) {
 		}
 		m.subscriptionPolicies[id] = subscriptionrate.Policy{ID: id, Emails: slices.Clone(p.Emails), UplinkBps: p.UplinkBps, DownlinkBps: p.DownlinkBps, Revision: revision, Disabled: p.Disabled}
 	}
+	// Open the explicitly provisioned managed journal BEFORE reading policy
+	// snapshots, so the version-2 snapshot can be bound to its immutable storeId.
+	// Missing/torn/ambiguous journal must never initialize as empty state.
+	if mode == "managed" && os.Getenv("ELXRAY_OP_JOURNAL") != "" {
+		journal, err := elxjournal.Open(os.Getenv("ELXRAY_OP_JOURNAL"))
+		if err != nil {
+			return nil, err
+		}
+		if journal.HasPending() {
+			return nil, elxjournal.ErrUncertain
+		}
+		m.opJournal = journal
+	}
 	if path := os.Getenv("ELXRAY_POLICY_STATE"); path != "" {
 		if err := m.restorePolicies(path); err != nil {
 			return nil, err
@@ -155,6 +170,26 @@ func New(ctx context.Context, config *Config) (*Instance, error) {
 		m.usageIncarnation[8] = m.usageIncarnation[8]&0x3f | 0x80
 		for _, p := range m.subscriptionPolicies {
 			m.subscriptions[strings.ToLower(p.Emails[0])].Update(p.UplinkBps, p.DownlinkBps, p.Disabled)
+		}
+	}
+	if m.opJournal != nil {
+		for id, binding := range m.leaseBindings {
+			// Recovered policy revision and trusted Control-reconciled journal
+			// baseline MUST agree before managed traffic may ever be admitted.
+			revision, generation, ready := m.opJournal.ResourceState(binding.ResourceID.String())
+			policy := m.subscriptionPolicies[id]
+			if !ready || revision != policy.Revision || generation < binding.MinAuthorityGeneration {
+				_ = m.Close()
+				return nil, elxjournal.ErrStale
+			}
+			if saved, ok := m.opJournal.Lease(binding.ResourceID.String()); ok {
+				if saved.AuthorityGeneration < binding.MinAuthorityGeneration {
+					_ = m.Close()
+					return nil, elxjournal.ErrStale
+				}
+				m.leaseSeq[id] = saved.Sequence
+				m.leaseGeneration[id] = saved.AuthorityGeneration
+			}
 		}
 	}
 	if len(config.Level) > 0 {
