@@ -123,8 +123,13 @@ func TestManagedRatesRejectUnsignedRaiseBetweenLeaseRenewals(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, updown := range [][2]uint64{{101, 200}, {100, 201}, {101, 201}, {0, 200}} {
-		if _, err := m.UpdateSubscription(mk(1, updown[0], updown[1], false)); !errors.Is(err, subscriptionrate.ErrUnauthorized) {
-			t.Fatalf("in-lease ceiling exceeded for %v: %v", updown, err)
+		_, err := m.UpdateSubscription(mk(1, updown[0], updown[1], false))
+		expected := subscriptionrate.ErrLeaseCeiling
+		if updown[0] == 0 {
+			expected = subscriptionrate.ErrUnauthorized
+		}
+		if !errors.Is(err, expected) {
+			t.Fatalf("incorrect signed-rate rejection for %v: got %v, want %v", updown, err, expected)
 		}
 	}
 	for _, mutate := range []func(*ControlLease){
