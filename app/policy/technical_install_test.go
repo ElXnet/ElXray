@@ -9,9 +9,9 @@ import (
 
 func TestTechnicalInstallFailsWithoutManagedAuthorityAndDurableJournal(t *testing.T) {
 	for name, instance := range map[string]*Instance{
-		"standalone":       {technicalProvisioning: false},
-		"missing-journal":  {technicalProvisioning: true},
-		"nil-runtime":      nil,
+		"standalone":      {technicalProvisioning: false},
+		"missing-journal": {technicalProvisioning: true},
+		"nil-runtime":     nil,
 	} {
 		t.Run(name, func(t *testing.T) {
 			var prepared *Instance = instance
