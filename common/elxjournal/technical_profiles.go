@@ -23,6 +23,9 @@ type TechnicalProfile struct {
 	PolicyRevision      uint64 `json:"policyRevision"`
 	NotAfterUnix        int64  `json:"notAfterUnix"`
 	TranscriptSHA256    string `json:"transcriptSha256"`
+	InstallOperationID  string `json:"installOperationId,omitempty"`
+	InstallTranscriptSHA256 string `json:"installTranscriptSha256,omitempty"`
+	Flow                string `json:"flow,omitempty"`
 	Phase               string `json:"phase"`
 }
 
@@ -34,7 +37,7 @@ func validTechnicalProfile(p TechnicalProfile) bool {
 	}
 	if p.ProfileGeneration != 1 || p.AuthorityGeneration == 0 ||
 		p.PolicyRevision == 0 || p.NotAfterUnix <= 0 ||
-		p.Phase != "PREPARED" || len(p.SubscriptionID) == 0 ||
+		(p.Phase != "PREPARED" && p.Phase != "INSTALLING" && p.Phase != "INSTALLED") || len(p.SubscriptionID) == 0 ||
 		len(p.SubscriptionID) > 1024 || len(p.Email) == 0 ||
 		len(p.Email) > 255 || len(p.InboundTag) == 0 ||
 		len(p.InboundTag) > 128 ||
@@ -42,8 +45,20 @@ func validTechnicalProfile(p TechnicalProfile) bool {
 		return false
 	}
 	digest, err := hex.DecodeString(p.TranscriptSHA256)
-	return err == nil && len(digest) == sha256.Size &&
-		hex.EncodeToString(digest) == p.TranscriptSHA256
+	if err != nil || len(digest) != sha256.Size ||
+		hex.EncodeToString(digest) != p.TranscriptSHA256 {
+		return false
+	}
+	if p.Phase == "PREPARED" {
+		return p.InstallOperationID == "" && p.InstallTranscriptSHA256 == "" && p.Flow == ""
+	}
+	if !uuidRE.MatchString(p.InstallOperationID) ||
+		(p.Flow != "" && p.Flow != "xtls-rprx-vision") {
+		return false
+	}
+	installDigest, err := hex.DecodeString(p.InstallTranscriptSHA256)
+	return err == nil && len(installDigest) == sha256.Size &&
+		hex.EncodeToString(installDigest) == p.InstallTranscriptSHA256
 }
 
 // vlessLookupKey mirrors proxy/vless.ProcessUUID: the third UUID group
