@@ -72,9 +72,9 @@ func TestControlProfileWireRejectsDuplicateAndCaseFoldedKeys(t *testing.T) {
 	pinned := private.Public().(ed25519.PublicKey)
 	now := time.Unix(1700000008, 0)
 	for name, raw := range map[string][]byte{
-		"outer-exact": append(append([]byte(nil), valid[:len(valid)-1]...), []byte(`,"Signature":null}`)...),
-		"outer-case-folded": append(append([]byte(nil), valid[:len(valid)-1]...), []byte(`,"signature":null}`)...),
-		"nested-exact": bytes.Replace(valid, []byte(`"SubscriptionID":"lab"`), []byte(`"SubscriptionID":"lab","SubscriptionID":"other"`), 1),
+		"outer-exact":        append(append([]byte(nil), valid[:len(valid)-1]...), []byte(`,"Signature":null}`)...),
+		"outer-case-folded":  append(append([]byte(nil), valid[:len(valid)-1]...), []byte(`,"signature":null}`)...),
+		"nested-exact":       bytes.Replace(valid, []byte(`"SubscriptionID":"lab"`), []byte(`"SubscriptionID":"lab","SubscriptionID":"other"`), 1),
 		"nested-case-folded": bytes.Replace(valid, []byte(`"SubscriptionID":"lab"`), []byte(`"SubscriptionID":"lab","subscriptionid":"other"`), 1),
 	} {
 		t.Run(name, func(t *testing.T) {
