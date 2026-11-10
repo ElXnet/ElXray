@@ -16,7 +16,7 @@ import (
 // authority: only the pre-provisioned Control public key and exact pinned
 // node/resource/executor are. No embedded key can override those.
 type ControlJob struct {
-	Grant Grant
+	Grant     Grant
 	Signature []byte
 }
 
@@ -24,7 +24,8 @@ type ControlJob struct {
 // foreign executor/node/resource, stale generation and expired grants. No
 // live user mutation or device admission is performed by this function.
 func DecodeControlJob(raw []byte, publicKey ed25519.PublicKey,
-	node, executor, resource uuid.UUID, now time.Time) (Grant, error) {
+	node, executor, resource uuid.UUID, now time.Time,
+) (Grant, error) {
 	if len(raw) == 0 || len(raw) > 4096 {
 		return Grant{}, ErrInvalid
 	}
