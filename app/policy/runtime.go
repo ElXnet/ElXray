@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"math"
+	"os"
 	"slices"
 	"strings"
 	"time"
@@ -70,6 +71,19 @@ func (m *Instance) updateSubscription(u subscriptionrate.Update, cmd *elxjournal
 			cmd.AuthorityGeneration < binding.MinAuthorityGeneration ||
 			cmd.ExpectedRevision != u.ExpectedRevision || cmd.NewRevision != u.Revision ||
 			cmd.PayloadSHA256 != ManagedUpdateHash(u) {
+			if os.Getenv("ELXRAY_E2E_LEASE_DIAGNOSTICS") == "1" {
+				// Test-only boolean diagnostics. Never expose identities,
+				// signed material or raw operation metadata in RPC errors.
+				fmt.Fprintln(os.Stderr, "ELXRAY_E2E_MANAGED_SCOPE_MISMATCH:",
+					"binding", bound, "kind", cmd.Kind == "set-rate",
+					"node", cmd.NodeID == m.leaseNodeID.String(),
+					"resource", bound && cmd.ResourceID == binding.ResourceID.String(),
+					"executor", bound && cmd.ExecutorID == binding.ExecutorID.String(),
+					"epoch", bound && cmd.AuthorityGeneration >= binding.MinAuthorityGeneration,
+					"expected", cmd.ExpectedRevision == u.ExpectedRevision,
+					"revision", cmd.NewRevision == u.Revision,
+					"hash", cmd.PayloadSHA256 == ManagedUpdateHash(u))
+			}
 			return subscriptionrate.Policy{}, subscriptionrate.ErrUnauthorized
 		}
 		if prior, exists := m.opJournal.Get(cmd.OperationID); exists {
