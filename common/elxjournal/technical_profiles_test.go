@@ -113,3 +113,62 @@ func TestTechnicalProfileCannotReuseDurableDeniedUUID(t *testing.T) {
 		t.Fatalf("failed to read old stage3-format v2 snapshot: %v", err)
 	}
 }
+
+func TestTechnicalProfileRejectsVLESSNormalizedUUIDAlias(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("durable managed journal needs Unix directory fsync; Windows remains fail-closed")
+	}
+	path := filepath.Join(t.TempDir(), "managed-v2.json")
+	if err := Provision(path, uuid.NewString()); err != nil {
+		t.Fatal(err)
+	}
+	j, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := technicalFixture()
+	if err := j.BootstrapResource(p.ResourceID, 1, p.AuthorityGeneration); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.RecordTechnicalPrepared(p); err != nil {
+		t.Fatal(err)
+	}
+	aliasID := uuid.MustParse(p.ProfileID)
+	aliasID[6] ^= 1
+	aliasID[7] ^= 2
+	alias := p
+	alias.ProfileID = aliasID.String()
+	alias.OperationID = uuid.NewString()
+	alias.Email = "different@lab"
+	if vlessLookupKey(alias.ProfileID) != vlessLookupKey(p.ProfileID) {
+		t.Fatal("test fixture must share the effective VLESS lookup key")
+	}
+	if err := j.RecordTechnicalPrepared(alias); !errors.Is(err, ErrCollision) {
+		t.Fatalf("effective VLESS UUID alias was durably reserved: %v", err)
+	}
+	if _, err := Open(path); err != nil {
+		t.Fatalf("rejected alias corrupted the journal: %v", err)
+	}
+
+	// A permanent denial also applies to every alias of its effective UUID.
+	denyPath := filepath.Join(t.TempDir(), "denied-v2.json")
+	if err := Provision(denyPath, uuid.NewString()); err != nil {
+		t.Fatal(err)
+	}
+	denials, err := Open(denyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := denials.BootstrapResource(p.ResourceID, 1, p.AuthorityGeneration); err != nil {
+		t.Fatal(err)
+	}
+	if err := denials.RecordDeniedProfile(p.ProfileID, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := denials.RecordTechnicalPrepared(alias); !errors.Is(err, ErrStale) {
+		t.Fatalf("alias of permanently denied VLESS UUID was restored: %v", err)
+	}
+	if err := denials.RecordDeniedProfile(alias.ProfileID, 2); !errors.Is(err, ErrCollision) {
+		t.Fatalf("duplicate tombstone key undermines future restore validation: %v", err)
+	}
+}
