@@ -21,6 +21,7 @@ const technicalServiceName = "elx.core.v1.TechnicalProfile"
 // the core's pinned Control key, live lease, journal and exact executor.
 type technicalProfileService interface {
 	prepare(context.Context, *wrapperspb.BytesValue) (*wrapperspb.BytesValue, error)
+	install(context.Context, *wrapperspb.BytesValue) (*wrapperspb.BytesValue, error)
 	readback(context.Context, *wrapperspb.StringValue) (*wrapperspb.BytesValue, error)
 }
 
@@ -66,6 +67,35 @@ func (s *technicalProfileServer) prepare(ctx context.Context,
 	data, err := json.Marshal(record)
 	if err != nil {
 		return nil, status.Error(codes.Internal, "technical profile readback encoding failed")
+	}
+	return wrapperspb.Bytes(data), nil
+}
+
+// install is an independently signed v2 action. PREPARE cannot mutate
+// VLESS users. The response is local non-admitting readback, not a signed
+// Control-ready APPLIED receipt.
+func (s *technicalProfileServer) install(ctx context.Context,
+	request *wrapperspb.BytesValue,
+) (*wrapperspb.BytesValue, error) {
+	if err := checkLocalPeer(ctx); err != nil {
+		return nil, err
+	}
+	if request == nil || len(request.Value) == 0 || len(request.Value) > 4096 {
+		return nil, status.Error(codes.InvalidArgument, "missing signed Control install grant")
+	}
+	installer, ok := s.manager.(interface {
+		InstallTechnicalProfile([]byte) (elxjournal.TechnicalProfile, error)
+	})
+	if !ok {
+		return nil, status.Error(codes.FailedPrecondition, "technical install controller missing")
+	}
+	record, err := installer.InstallTechnicalProfile(request.Value)
+	if err != nil {
+		return nil, technicalError(err)
+	}
+	data, err := json.Marshal(record)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "technical installation readback encoding failed")
 	}
 	return wrapperspb.Bytes(data), nil
 }
@@ -124,6 +154,7 @@ func registerTechnicalProfile(server *grpc.Server, manager policy.SubscriptionCo
 		HandlerType: (*technicalProfileService)(nil),
 		Methods: []grpc.MethodDesc{
 			{MethodName: "Prepare", Handler: technicalHandler("Prepare", (*technicalProfileServer).prepare)},
+			{MethodName: "Install", Handler: technicalHandler("Install", (*technicalProfileServer).install)},
 			{MethodName: "Readback", Handler: technicalHandler("Readback", (*technicalProfileServer).readback)},
 		},
 	}, &technicalProfileServer{manager: manager})
