@@ -21,7 +21,7 @@ type TechnicalProfile struct {
 	ProfileGeneration       uint64 `json:"profileGeneration"`
 	AuthorityGeneration     uint64 `json:"authorityGeneration"`
 	PolicyRevision          uint64 `json:"policyRevision"`
-	NotAfterUnix            int64 `json:"notAfterUnix"`
+	NotAfterUnix            int64  `json:"notAfterUnix"`
 	TranscriptSHA256        string `json:"transcriptSha256"`
 	InstallOperationID      string `json:"installOperationId,omitempty"`
 	InstallTranscriptSHA256 string `json:"installTranscriptSha256,omitempty"`
