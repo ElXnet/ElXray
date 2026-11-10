@@ -166,9 +166,9 @@ func (m *Instance) InstallTechnicalProfile(raw []byte) (elxjournal.TechnicalProf
 	// A crash here leaves INSTALLING and the next managed boot refuses to
 	// claim a safe outcome; no fallback to static JSON or unsigned AddUser.
 	user := &protocol.MemoryUser{
-		Email:   g.Email,
+		Email: g.Email,
 		Account: &vless.MemoryAccount{
-			ID: protocol.NewID(xrayuuid.UUID(g.ProfileID)),
+			ID:   protocol.NewID(xrayuuid.UUID(g.ProfileID)),
 			Flow: g.Flow,
 		},
 	}
