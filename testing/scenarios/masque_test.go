@@ -10,6 +10,7 @@ import (
 	"encoding/binary"
 	go_errors "errors"
 	"io"
+	gonet "net"
 	"net/http"
 	"net/netip"
 	"net/url"
@@ -602,9 +603,36 @@ func masqueIPAddrs(p []byte) (src, dst netip.Addr) {
 	return netip.AddrFrom16([16]byte(p[8:24])), netip.AddrFrom16([16]byte(p[24:40]))
 }
 
+// This HTTP/3 + HTTP/2 test binds TCP and UDP on the SAME port.
+// An available UDP port is not necessarily permitted for TCP on Windows:
+// excluded TCP port ranges can make UDP PickPort appear free and the test
+// then fails before it ever exercises MASQUE. Select a port verified for
+// both families instead of disabling the scenario on Windows.
+func pickMasqueDualProtocolPort(t *testing.T) net.Port {
+	t.Helper()
+	for attempt := 0; attempt < 64; attempt++ {
+		port := tcp.PickPort()
+		address := gonet.JoinHostPort("127.0.0.1", strconv.Itoa(int(port)))
+		listener, err := gonet.Listen("tcp", address)
+		if err != nil {
+			continue
+		}
+		datagrams, err := gonet.ListenPacket("udp", address)
+		if err == nil {
+			_ = datagrams.Close()
+		}
+		_ = listener.Close()
+		if err == nil {
+			return port
+		}
+	}
+	t.Fatal("no available TCP+UDP localhost port for MASQUE HTTP/2+HTTP/3")
+	return 0
+}
+
 func TestMasqueServerClientToClient(t *testing.T) {
 	ct, ctHash := cert.MustGenerate(nil, cert.CommonName("localhost"))
-	serverPort := udp.PickPort()
+	serverPort := pickMasqueDualProtocolPort(t)
 	servers, err := InitializeServerConfigs(&core.Config{
 		Inbound: []*core.InboundHandlerConfig{
 			masqueServerInbound(serverPort, tls.ParseCertificate(ct), http3.NextProtoH3, http2.NextProtoTLS),
