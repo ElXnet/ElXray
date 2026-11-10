@@ -21,8 +21,8 @@ func TestRetiredCoreProofGoldenAndTampering(t *testing.T) {
 	proof := RetireReceipt{
 		Version: 1, OperationID: g.OperationID, ProfileID: g.ProfileID,
 		NodeID: g.NodeID, ExecutorID: g.ExecutorID, ResourceID: g.ResourceID,
-		StoreID: uuid.MustParse("66666666-6666-4666-8666-666666666666"),
-		CoreIncarnation: uuid.MustParse("77777777-7777-4777-8777-777777777777"),
+		StoreID:             uuid.MustParse("66666666-6666-4666-8666-666666666666"),
+		CoreIncarnation:     uuid.MustParse("77777777-7777-4777-8777-777777777777"),
 		AuthorityGeneration: 9, PolicyRevision: 4, RetireGeneration: 2,
 		TranscriptSHA256: hex.EncodeToString(h[:]),
 	}
@@ -32,7 +32,9 @@ func TestRetiredCoreProofGoldenAndTampering(t *testing.T) {
 	}
 	proof.Signature = ed25519.Sign(key, proof.Transcript())
 	pub := key.Public().(ed25519.PublicKey)
-	if err := VerifyRetireReceipt(proof, g, pub); err != nil { t.Fatal(err) }
+	if err := VerifyRetireReceipt(proof, g, pub); err != nil {
+		t.Fatal(err)
+	}
 	for _, mutate := range []func(*RetireReceipt){
 		func(p *RetireReceipt) { p.ProfileID = uuid.New() },
 		func(p *RetireReceipt) { p.StoreID = uuid.New() },
