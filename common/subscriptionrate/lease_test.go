@@ -18,7 +18,15 @@ func TestControlLeaseDenyAndExpiryClosesIdleFlows(t *testing.T) {
 		t.Fatalf("unleased payload escaped: %v", err)
 	}
 	deadline := time.Now().Add(300 * time.Millisecond)
-	l.RenewLease(deadline)
+	if !l.RenewLease(deadline) {
+		t.Fatal("first signed lease not installed")
+	}
+	if !l.RenewLease(deadline) {
+		t.Fatal("new signed sequence with unchanged expiry cannot be installed")
+	}
+	if got, ok := l.VerifiedLeaseDeadline(); !ok || !got.Equal(deadline) {
+		t.Fatalf("equal expiry changed signed deadline: %v %v", got, ok)
+	}
 	var stops atomic.Int32
 	end, err := l.TrackConnection(func() { stops.Add(1) })
 	if err != nil {
@@ -35,8 +43,10 @@ func TestControlLeaseDenyAndExpiryClosesIdleFlows(t *testing.T) {
 	if l.Downlink.AllowN(deadline.Add(time.Second), 1) {
 		t.Fatal("expired lease admitted payload")
 	}
-	// Retrying a stale ticket cannot enlarge the deadline.
-	l.RenewLease(deadline)
+	// A stale/expired ticket cannot re-admit flows or extend the deadline.
+	if l.RenewLease(deadline) {
+		t.Fatal("expired equal-expiry lease re-opened admission")
+	}
 	if _, err := l.TrackConnection(func() {}); !errors.Is(err, ErrDisabled) {
 		t.Fatal("stale lease retry reopened closed flow")
 	}
