@@ -99,20 +99,26 @@ func (v *MemoryValidator) GetByEmail(email string) *protocol.MemoryUser {
 	return nil
 }
 
-// Get all users
+// Get all users, including no-email accounts that can still authenticate.
 func (v *MemoryValidator) GetAll() []*protocol.MemoryUser {
+	v.mutation.Lock()
+	defer v.mutation.Unlock()
 	u := make([]*protocol.MemoryUser, 0, 100)
-	v.email.Range(func(key, value interface{}) bool {
+	// This map is the authenticated lookup source; the email index omits
+	// legitimate empty-email identities, so it is unsafe for collision scans.
+	v.users.Range(func(_, value interface{}) bool {
 		u = append(u, value.(*protocol.MemoryUser))
 		return true
 	})
 	return u
 }
 
-// Get users count
+// Get users count.
 func (v *MemoryValidator) GetCount() int64 {
-	var c int64 = 0
-	v.email.Range(func(key, value interface{}) bool {
+	v.mutation.Lock()
+	defer v.mutation.Unlock()
+	var c int64
+	v.users.Range(func(_, _ interface{}) bool {
 		c++
 		return true
 	})
