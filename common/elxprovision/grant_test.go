@@ -135,3 +135,32 @@ func TestSignedProfilePreparationRejectsCrossExecutorAndForgedFields(t *testing.
 		t.Fatalf("delimiter injection accepted: %v", err)
 	}
 }
+
+func TestSignedGrantRegistryRejectsEffectiveVLESSUUIDAlias(t *testing.T) {
+	original, privateKey := testGrant(t)
+	registry, err := New(privateKey.Public().(ed25519.PublicKey),
+		original.NodeID, original.ExecutorID, original.ResourceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(1700000008, 0)
+	if err := registry.Stage(original, now); err != nil {
+		t.Fatal(err)
+	}
+	alias := original
+	alias.OperationID = uuid.New()
+	alias.ProfileID[6] ^= 1
+	alias.ProfileID[7] ^= 2
+	alias.Email = "different@lab"
+	alias.InboundTag = "different-vless"
+	alias.Signature = ed25519.Sign(privateKey, alias.Transcript())
+	if err := registry.Stage(alias, now); !errors.Is(err, ErrCollision) {
+		t.Fatalf("a distinct signed UUID alias hijacked the VLESS lookup key: %v", err)
+	}
+	if _, exists := registry.Get(alias.ProfileID); exists {
+		t.Fatal("an aliased signed profile became registered")
+	}
+	if entry, exists := registry.Get(original.ProfileID); !exists || entry.Grant.Email != original.Email {
+		t.Fatal("aliased signed profile replaced original")
+	}
+}
