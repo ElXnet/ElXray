@@ -1,120 +1,103 @@
-# Stage 4: signed technical profile provisioning — WIP
+# Stage 4 — dynamic technical VLESS provisioning (IN_PROGRESS)
 
-Stage-4 branches are deliberately stacked on the **unmerged Stage-3** heads:
-- ElXray stage-3 PR #21
-- ElX-control stage-3 PR #22
+Paired pull requests:
+- ElXray: https://github.com/ElXnet/ElXray/pull/22
+- ElX-control: https://github.com/ElXnet/ElX-control/pull/23
 
-## Completed in the first stage-4 implementation slice
+Stage 3 has already been merged to both repositories' `main`.
+These Stage 4 PRs target `main` and are deliberately kept DRAFT until
+the signed installation/retirement, crash recovery and E2E gates pass.
 
-- Defined the exact `elx-profile-grant-v1` Ed25519 transcript over action,
-  operationId, nodeId, executorId, resourceId, profileId, subscriptionId,
-  technical email and inboundTag, profileGeneration, authorityGeneration,
-  policyRevision, and expiry.
-- Added an ElXray model that **verifies the signature against the pinned Control
-  public key and exact node/executor/resource**, rejects mutated grants,
-  old generations, operationId collisions, expired grants, delimiter injection
-  and reuse of a retired UUID.
-- The model distinguishes `Pending`, `Installed` and `Retired`, and exposes
-  no operation that grants VPN payload. An installed VLESS user is *not* an
-  admitted device: stage 5/6 channel proof + Control owner reservation remain
-  mandatory.
-- Added both ElXray and Control golden fixtures. SHA-256 of canonical example
-  transcript: `8282465f046f0dea2b02289253ab1e29cf053742a4fb2a7e4697d3187b4ef1cd`.
-- Used existing upstream `HandlerService` and `proxy.UserManager` as the
-  candidate technical user-management API instead of duplicating inbound
-  listener configuration. **Do not call these old generic APIs from managed
-  Control without an authenticated atomic provisioning adapter.**
+## Security boundary
 
-## Not implemented yet — stage 4 is IN_PROGRESS
+A **technical VLESS profile** is a preallocated account UUID, not a
+verified physical device, session-owner, concurrent slot or right to
+send VPN payload. A Control-signed `prepare` intent cannot admit traffic.
+Device/channel proof and Control owner admission belong to later stages.
+Never claim physical device identity from a UUID.
 
-1. Reserve signed and budgeted technical profile issuance in PostgreSQL Control;
-   durable intent plus idempotent operator-approved create/retire and generation HWM.
-2. Journal `profileId → subscription/email/inboundTag/node/executor/resource/generation`
-   in ElXray's on-disk store and restore **before managed listeners start**.
-3. Add an OS-authenticated managed Unix RPC that durably commits the intended
-   binding **before** `HandlerService/AlterInbound` adds the dynamic VLESS
-   account, then verifies live user readback and signs the operation receipt.
-4. For retiring a profile, deny new traffic and permanently tombstone the
-   profile before removing it from every matching VLESS inbound. Drain/ACK
-   must not release a Control owner until the proper stage-7 fence.
-5. All existing generic `HandlerService/AddUser` and technical config reload
-   paths must fail closed for unbound managed profiles; static standalone Xray
-   operation must remain compatible.
-6. Verify concurrency, two inbounds, repeat, partial commit, crash, disk full,
-   fast restart, Control migration, signed ceiling and wrong executor through
-   full Go 1.27/race/PostgreSQL tests. No stage-4 readiness advertised until then.
+Default Stage 2/3 operation is preserved. Opt-in
+`ELXRAY_TECHNICAL_PROVISIONING=1` requires `ELXRAY_MODE=managed`, a
+provisioned durable `ELXRAY_OP_JOURNAL`, signed leases, a protected local
+Unix Commander, a dedicated non-root agent and pinned Control keys.
+The opt-in currently denies **all** managed VLESS payload because the
+later owner/device-proof mechanism has not been implemented.
+**Do not activate the opt-in on production VPN nodes yet.**
 
-**Stage-4 status: IN_PROGRESS, NOT RELEASE READY.** Neither stage-4 PR may be
-merged before paired stage-3 release gates pass.
+## Implemented (still under test)
 
-## 2026-11-10 implementation checkpoint
+1. Control `internal/elxcontrol/corepolicy/profile_grant.go` and Xray
+   `common/elxprovision/grant.go` share the byte-exact Ed25519
+   `elx-profile-grant-v1` transcript, including operation, target,
+   executor, resource, subscription, inbound/email, profile UUID,
+   generation, authority and revision, plus validity timestamps.
+   The canonical fixture SHA-256 is
+   `8282465f046f0dea2b02289253ab1e29cf053742a4fb2a7e4697d3187b4ef1cd`.
+2. Control PostgreSQL migration `023_technical_profiles.sql` creates
+   immutable technical UUID reservation and INTENT/APPLIED ledgers.
+   `journal.QueueTechnicalProfile` pins paid entitlement, current
+   rate grant, core store witness, executor, revision and epoch.
+   Idempotent exact retries are allowed; changed op IDs/UUID aliases,
+   expired grants, revoked subscriptions and uncommitted mutations are
+   rejected. It creates no live user.
+3. The privileged Control `enqueue-technical-profile` command sources
+   node/resource/executor/subscription/epoch from protected bindings.
+   PolicyDelivery `TechnicalProfileNext` rechecks the same current
+   binding and paid DB grant and signs a short-lived profile job only
+   after a matching durable INTENT exists. Node identity comes from mTLS.
+4. `common/elxprovision.DecodeControlJob` performs strict bounded JSON
+   and pinned-key signature verification, rejecting unknown/trailing
+   fields, nested signatures, wrong node/executor/resource, replay,
+   stale generation and changed payload.
+5. ElXray's `common/elxjournal` v2 durable snapshot now supports an
+   **optional**, backwards-compatible `technicalProfiles` map.
+   `RecordTechnicalPrepared` persists an exact PREPARED identity
+   before any later user mutation, rejects collisions and old denied
+   UUIDs, and survives safe restart without silently granting payload.
+   The existing Stage 3 journal cannot be reconstructed after loss.
+6. ElXray `app/policy/technical_preparation.go` checks the exact
+   Control-signed payload against the currently pinned lease,
+   subscription, executor, resource, authority and core policy revision.
+   The separate `/elx.core.v1.TechnicalProfile/{Prepare,Readback}`
+   gRPC service in `app/policy/command` requires the already enforced
+   Unix SO_PEERCRED local agent. The readback reports PREPARED, **never
+   installed/applied or device admitted**.
+7. Control's `corepolicy.Client` sends the exact signed job to that
+   local RPC. `policytransport.ApplyTechnicalPreparation` verifies
+   the trusted Control public key and exact local assignment, checks
+   core PREPARED readback plus local persisted readback, and **does not**
+   ACK APPLIED or release any slot. Opt-in
+   `ELX_AGENT_TECHNICAL_PREPARE=1` integrates this poll into the
+   existing node agent, requiring managed signed-lease mode.
+8. Generic upstream HandlerService inbound/outbound mutation methods
+   (including AddUser) are refused in managed mode, preventing an
+   unsigned bypass of the new dedicated path; standalone behavior
+   remains upstream compatible.
+9. Added negative/race-friendly unit tests for exact transcript,
+   bad signatures/foreign executor, persistence and restart,
+   denied UUID/collision, RPC peer auth, bounded transport and
+   non-admitting readback. Also corrected a Windows MASQUE test to
+   check a shared port is available for both TCP and UDP before launch.
 
-Stage 3 has been merged into `main` in both repositories; these two Stage 4
-draft PRs target `main` without creating more branches.
+## P0 work still required before DONE
 
-### Done in current Stage 4 branch (not yet accepted)
+1. Add *durably verified dynamic* VLESS `AddUser` through the dedicated
+   managed path, including signed flow configuration (Vision vs empty),
+   exact authorized inbound, readback and safe crash interruption.
+   `PREPARED` must never be mistaken for `INSTALLED`.
+2. Implement signed, independently core-attested `INSTALLED` receipt.
+   Control may advance its `INTENT` to `APPLIED` only after checking
+   exact operation/UUID, verified core incarnation, journal HWM and
+   live registered user. Lost ACK and uncertain outcomes stay pending.
+3. Implement safe profile update/retire, permanent tombstone and drain
+   across all matching inbounds/active flows, without unverified
+   release of owner or bandwidth.
+4. Protect managed restart and config reload from static JSON bypass,
+   restore installed mappings and verify crash/disk-full/fsync/replay.
+5. Pass CI gofumpt, Go tests, critical race/vet, PostgreSQL-backed
+   Control/core two-node E2E, wrong-node/executor and payload-denial
+   tests on the **paired Stage 4 heads**. Unsupported network tests
+   and external acceptance must remain explicitly NOT RUN when skipped.
 
-- Control PostgreSQL migration `023_technical_profiles.sql` adds permanent
-  technical VLESS UUID reservation, immutable scoped operation IDs and
-  `INTENT/APPLIED` storage. A row in `prepared` is *not* proof of a
-  live VLESS user, device ownership or data-plane authorization.
-- `journal.QueueTechnicalProfile` is a transactional, purchased-entitlement
-  and Control-witness-checked enqueue: exact node/resource/executor, current
-  authority epoch, currently committed core revision, subscription, and
-  positive current rate grant must match. Collisions, stale epochs,
-  unconfirmed rate mutations, foreign executor and reused UUID are rejected.
-  Caller supplies canonical explicit short-lived start/end timestamps so
-  retries with the same ID use the same exact digest.
-- `cmd/elx-control enqueue-technical-profile` is a privileged operator-only
-  interface; it gets node/executor/subscription/epoch exclusively from the
-  protected current Control binding file. It does not enable traffic.
-- Control `PolicyDelivery/TechnicalProfileNext` checks the currently
-  authenticated node's mTLS identity and fresh protected Control bindings,
-  reconstructs the original persisted exact-intent body, validates its
-  SHA-256, and returns a short-lived Ed25519 signed `ProfileGrantIntent`.
-  A missing/expired job is `NotFound`; there is no default trust of
-  an agent-provided identity or public key.
-- Xray `elxprovision.DecodeControlJob` parses the bounded JSON envelope
-  strictly, disallows unknown/trailing fields and nested signatures,
-  verifies the currently pinned Control signing key and exact
-  node/executor/resource. No public subscription endpoint is involved.
-- Generic `HandlerService/AlterInbound/AddUser` and the other six
-  inbound/outbound mutations are now denied when running managed; standalone
-  remains upstream-compatible. This prevents using old unauthenticated
-  management calls as a substitute for the new signed provisioning flow.
-- **Opt-in fail-closed enforcement:** setting
-  `ELXRAY_TECHNICAL_PROVISIONING=1` requires managed mode and the existing
-  durable `ELXRAY_OP_JOURNAL`. An authenticated VLESS request is refused
-  before any payload dispatch while the user lacks Stage 6 device/owner
-  authorization. In this stage no positive device authorization exists,
-  therefore turning on the opt-in rejects *all* managed VLESS payload.
-  **Never enable this opt-in on production nodes yet.** Default Stage 2/3
-  behavior remains unchanged.
-- Tests cover the exact Control/Xray signed grant transcript, malformed
-  jobs, wrong executor, replay, expiry, concurrent alias/collision,
-  durable DB `INTENT`, generic HandlerService bypass denial and
-  lack of payload authority.
-
-### Remaining P0 gates before Stage 4 DONE / main merge
-
-1. Integrate the privileged node agent's technical-profile poll and its
-   **OS-credential-authenticated** core prepare/install RPC. The signed
-   preparation command must durably record its exact identity and hash
-   *before* any `proxy.UserManager.AddUser`. The transport/flow and
-   subscription-to-technical-email binding need to be explicitly covered
-   by the signed payload; never guess Vision vs non-Vision flow.
-2. Verify live VLESS readback and core incarnation before signing a
-   dedicated `APPLIED` receipt. Control changes `INTENT` to `APPLIED`
-   only after cryptographic verification, with no speculative resource or
-   owner-slot release on unknown outcomes.
-3. Implement safe update/retire, permanently tombstone old UUIDs and
-   drain all related network flows. Config reload and direct static users
-   must not bypass the managed profile binding.
-4. Implement restart/replay of all committed technical mappings and prove
-   safe recovery from power loss, disk-full, failed fsync and concurrent
-   reconfiguration.
-5. Run Go1.27 format/test/race/vet, real PostgreSQL node E2E,
-   wrong-node/executor/signed-flow and no-payload-before-admission tests.
-   Stage 3 deterministic WSL PASS cannot be substituted for Stage 4 E2E.
-
-**Stage 4 remains IN_PROGRESS. Both PRs are DRAFT, not ready for merge.**
+**Not merged.** Until all P0 gates are passed, Stage 4 remains
+`IN_PROGRESS` and production rollout is blocked.
