@@ -217,6 +217,21 @@ func Open(path string) (*Journal, error) {
 	return &Journal{path: path, img: s}, nil
 }
 
+// StoreIdentity returns the durable, immutable core-store identity used
+// for Control-pinned technical operation receipts. Damaged journals never
+// produce a trusted store identifier.
+func (j *Journal) StoreIdentity() (string, bool) {
+	if j == nil {
+		return "", false
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.failed || !uuidRE.MatchString(j.img.StoreID) {
+		return "", false
+	}
+	return j.img.StoreID, true
+}
+
 // BootstrapDeniedProfiles preserves old permanent profile denials before
 // converting an operator-approved v1 snapshot to the journal-managed v2.
 // It is only permitted before any leases or real operations exist.
