@@ -26,6 +26,9 @@ type TechnicalProfile struct {
 	InstallOperationID      string `json:"installOperationId,omitempty"`
 	InstallTranscriptSHA256 string `json:"installTranscriptSha256,omitempty"`
 	Flow                    string `json:"flow,omitempty"`
+	RetireOperationID       string `json:"retireOperationId,omitempty"`
+	RetireTranscriptSHA256  string `json:"retireTranscriptSha256,omitempty"`
+	RetireGeneration        uint64 `json:"retireGeneration,omitempty"`
 	Phase                   string `json:"phase"`
 }
 
@@ -37,28 +40,48 @@ func validTechnicalProfile(p TechnicalProfile) bool {
 	}
 	if p.ProfileGeneration != 1 || p.AuthorityGeneration == 0 ||
 		p.PolicyRevision == 0 || p.NotAfterUnix <= 0 ||
-		(p.Phase != "PREPARED" && p.Phase != "INSTALLING" && p.Phase != "INSTALLED") || len(p.SubscriptionID) == 0 ||
-		len(p.SubscriptionID) > 1024 || len(p.Email) == 0 ||
-		len(p.Email) > 255 || len(p.InboundTag) == 0 ||
-		len(p.InboundTag) > 128 ||
+		len(p.SubscriptionID) == 0 || len(p.SubscriptionID) > 1024 ||
+		len(p.Email) == 0 || len(p.Email) > 255 ||
+		len(p.InboundTag) == 0 || len(p.InboundTag) > 128 ||
 		strings.ContainsAny(p.SubscriptionID+p.Email+p.InboundTag, "\r\n") {
 		return false
 	}
-	digest, err := hex.DecodeString(p.TranscriptSHA256)
-	if err != nil || len(digest) != sha256.Size ||
-		hex.EncodeToString(digest) != p.TranscriptSHA256 {
+	validDigest := func(hexDigest string) bool {
+		digest, err := hex.DecodeString(hexDigest)
+		return err == nil && len(digest) == sha256.Size &&
+			hex.EncodeToString(digest) == hexDigest
+	}
+	if !validDigest(p.TranscriptSHA256) {
 		return false
 	}
-	if p.Phase == "PREPARED" {
-		return p.InstallOperationID == "" && p.InstallTranscriptSHA256 == "" && p.Flow == ""
-	}
-	if !uuidRE.MatchString(p.InstallOperationID) ||
-		(p.Flow != "" && p.Flow != "xtls-rprx-vision") {
+	switch p.Phase {
+	case "PREPARED":
+		return p.InstallOperationID == "" && p.InstallTranscriptSHA256 == "" &&
+			p.Flow == "" && p.RetireOperationID == "" &&
+			p.RetireTranscriptSHA256 == "" && p.RetireGeneration == 0
+	case "INSTALLING", "INSTALLED":
+		return uuidRE.MatchString(p.InstallOperationID) &&
+			validDigest(p.InstallTranscriptSHA256) &&
+			(p.Flow == "" || p.Flow == "xtls-rprx-vision") &&
+			p.RetireOperationID == "" && p.RetireTranscriptSHA256 == "" &&
+			p.RetireGeneration == 0
+	case "RETIRING", "RETIRED":
+		if !uuidRE.MatchString(p.RetireOperationID) ||
+			p.RetireOperationID == p.OperationID ||
+			p.RetireGeneration <= p.ProfileGeneration ||
+			!validDigest(p.RetireTranscriptSHA256) ||
+			(p.Flow != "" && p.Flow != "xtls-rprx-vision") {
+			return false
+		}
+		if p.InstallOperationID == "" {
+			return p.InstallTranscriptSHA256 == "" && p.Flow == ""
+		}
+		return uuidRE.MatchString(p.InstallOperationID) &&
+			p.InstallOperationID != p.RetireOperationID &&
+			validDigest(p.InstallTranscriptSHA256)
+	default:
 		return false
 	}
-	installDigest, err := hex.DecodeString(p.InstallTranscriptSHA256)
-	return err == nil && len(installDigest) == sha256.Size &&
-		hex.EncodeToString(installDigest) == p.InstallTranscriptSHA256
 }
 
 // vlessLookupKey mirrors proxy/vless.ProcessUUID: the third UUID group
