@@ -119,6 +119,7 @@ type Registry struct {
 	resource    uuid.UUID
 	byProfile   map[uuid.UUID]Entry
 	byOperation map[uuid.UUID]uuid.UUID
+	byLookup    map[[16]byte]uuid.UUID
 }
 
 // The trusted authority context is injected from protected core bootstrap,
@@ -131,6 +132,7 @@ func New(key ed25519.PublicKey, node, executor, resource uuid.UUID) (*Registry, 
 		key:  append(ed25519.PublicKey(nil), key...),
 		node: node, executor: executor, resource: resource,
 		byProfile: make(map[uuid.UUID]Entry), byOperation: make(map[uuid.UUID]uuid.UUID),
+		byLookup: make(map[[16]byte]uuid.UUID),
 	}, nil
 }
 
@@ -154,6 +156,14 @@ func (r *Registry) Stage(g Grant, now time.Time) error {
 		}
 		return ErrCollision
 	}
+	// VLESS's actual authenticated lookup ignores UUID bytes 6 and 7.
+	// Refuse a second UUID that aliases a different already-issued profile.
+	lookup := [16]byte(g.ProfileID)
+	lookup[6] = 0
+	lookup[7] = 0
+	if previousID, taken := r.byLookup[lookup]; taken && previousID != g.ProfileID {
+		return ErrCollision
+	}
 	if previous, ok := r.byProfile[g.ProfileID]; ok {
 		if g.ProfileGeneration <= previous.Grant.ProfileGeneration {
 			return ErrStale
@@ -170,6 +180,7 @@ func (r *Registry) Stage(g Grant, now time.Time) error {
 	}
 	r.byProfile[g.ProfileID] = Entry{Grant: g, Phase: phase}
 	r.byOperation[g.OperationID] = g.ProfileID
+	r.byLookup[lookup] = g.ProfileID
 	return nil
 }
 
