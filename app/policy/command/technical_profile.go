@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
+
+	"github.com/google/uuid"
 
 	"github.com/xtls/xray-core/common/elxjournal"
 	"github.com/xtls/xray-core/common/elxprovision"
@@ -25,6 +28,8 @@ type technicalProfileService interface {
 	installedProof(context.Context, *wrapperspb.BytesValue) (*wrapperspb.BytesValue, error)
 	retire(context.Context, *wrapperspb.BytesValue) (*wrapperspb.BytesValue, error)
 	retiredProof(context.Context, *wrapperspb.BytesValue) (*wrapperspb.BytesValue, error)
+	recoverInstalledProof(context.Context, *wrapperspb.StringValue) (*wrapperspb.BytesValue, error)
+	recoverRetiredProof(context.Context, *wrapperspb.StringValue) (*wrapperspb.BytesValue, error)
 	readback(context.Context, *wrapperspb.StringValue) (*wrapperspb.BytesValue, error)
 }
 
@@ -164,6 +169,82 @@ func (s *technicalProfileServer) retiredProof(ctx context.Context,
 	return wrapperspb.Bytes(payload), nil
 }
 
+// technicalRecoveryIDs accepts only two canonical UUIDs. A recovery request
+// is read-only and cannot replay a previously expired Control mutation.
+func technicalRecoveryIDs(value string) (string, string, error) {
+	parts := strings.Split(value, "/")
+	if len(parts) != 2 || len(value) != 73 {
+		return "", "", elxjournal.ErrInvalid
+	}
+	id, err1 := uuid.Parse(parts[0])
+	op, err2 := uuid.Parse(parts[1])
+	if err1 != nil || err2 != nil || id == uuid.Nil || op == uuid.Nil ||
+		id.String() != parts[0] || op.String() != parts[1] {
+		return "", "", elxjournal.ErrInvalid
+	}
+	return parts[0], parts[1], nil
+}
+
+func (s *technicalProfileServer) recoverInstalledProof(ctx context.Context,
+	request *wrapperspb.StringValue,
+) (*wrapperspb.BytesValue, error) {
+	if err := checkLocalPeer(ctx); err != nil {
+		return nil, err
+	}
+	if request == nil {
+		return nil, status.Error(codes.InvalidArgument, "missing signed install recovery identity")
+	}
+	id, op, err := technicalRecoveryIDs(request.Value)
+	if err != nil {
+		return nil, technicalError(err)
+	}
+	signer, ok := s.manager.(interface {
+		RecoverTechnicalInstalledProof(string, string) (elxprovision.InstallReceipt, error)
+	})
+	if !ok {
+		return nil, status.Error(codes.FailedPrecondition, "technical recovery not enabled")
+	}
+	proof, err := signer.RecoverTechnicalInstalledProof(id, op)
+	if err != nil {
+		return nil, technicalError(err)
+	}
+	body, err := json.Marshal(proof)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "cannot marshal installed recovery proof")
+	}
+	return wrapperspb.Bytes(body), nil
+}
+
+func (s *technicalProfileServer) recoverRetiredProof(ctx context.Context,
+	request *wrapperspb.StringValue,
+) (*wrapperspb.BytesValue, error) {
+	if err := checkLocalPeer(ctx); err != nil {
+		return nil, err
+	}
+	if request == nil {
+		return nil, status.Error(codes.InvalidArgument, "missing signed retire recovery identity")
+	}
+	id, op, err := technicalRecoveryIDs(request.Value)
+	if err != nil {
+		return nil, technicalError(err)
+	}
+	signer, ok := s.manager.(interface {
+		RecoverTechnicalRetiredProof(string, string) (elxprovision.RetireReceipt, error)
+	})
+	if !ok {
+		return nil, status.Error(codes.FailedPrecondition, "technical recovery not enabled")
+	}
+	proof, err := signer.RecoverTechnicalRetiredProof(id, op)
+	if err != nil {
+		return nil, technicalError(err)
+	}
+	body, err := json.Marshal(proof)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "cannot marshal retired recovery proof")
+	}
+	return wrapperspb.Bytes(body), nil
+}
+
 func (s *technicalProfileServer) installedProof(ctx context.Context,
 	request *wrapperspb.BytesValue,
 ) (*wrapperspb.BytesValue, error) {
@@ -248,6 +329,8 @@ func registerTechnicalProfile(server *grpc.Server, manager policy.SubscriptionCo
 			{MethodName: "InstalledProof", Handler: technicalHandler("InstalledProof", (*technicalProfileServer).installedProof)},
 			{MethodName: "Retire", Handler: technicalHandler("Retire", (*technicalProfileServer).retire)},
 			{MethodName: "RetiredProof", Handler: technicalHandler("RetiredProof", (*technicalProfileServer).retiredProof)},
+			{MethodName: "RecoverInstalledProof", Handler: technicalHandler("RecoverInstalledProof", (*technicalProfileServer).recoverInstalledProof)},
+			{MethodName: "RecoverRetiredProof", Handler: technicalHandler("RecoverRetiredProof", (*technicalProfileServer).recoverRetiredProof)},
 			{MethodName: "Readback", Handler: technicalHandler("Readback", (*technicalProfileServer).readback)},
 		},
 	}, &technicalProfileServer{manager: manager})
