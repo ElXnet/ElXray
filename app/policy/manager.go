@@ -24,25 +24,25 @@ import (
 
 // Instance is an instance of Policy manager.
 type Instance struct {
-	unmanaged            *subscriptionrate.Limits
-	levels               map[uint32]*Policy
-	system               *SystemPolicy
-	subscriptions        map[string]*subscriptionrate.Limits
-	subscriptionMu       sync.Mutex
-	store                *policyStore
-	opJournal            *elxjournal.Journal
+	unmanaged             *subscriptionrate.Limits
+	levels                map[uint32]*Policy
+	system                *SystemPolicy
+	subscriptions         map[string]*subscriptionrate.Limits
+	subscriptionMu        sync.Mutex
+	store                 *policyStore
+	opJournal             *elxjournal.Journal
 	technicalProvisioning bool
-	usageIncarnation     [16]byte
-	usageSequences       map[string]uint64
-	subscriptionPolicies map[string]subscriptionrate.Policy
-	profileGate          *sessionfence.Registry
-	leasePublicKey       ed25519.PublicKey
-	leaseNodeID          uuid.UUID
-	leaseBindings        map[string]leaseBinding
-	leaseGeneration      map[string]uint64
-	leaseSeq             map[string]int64
-	leaseAccepted        map[string]ControlLease
-	leaseCancel          context.CancelFunc
+	usageIncarnation      [16]byte
+	usageSequences        map[string]uint64
+	subscriptionPolicies  map[string]subscriptionrate.Policy
+	profileGate           *sessionfence.Registry
+	leasePublicKey        ed25519.PublicKey
+	leaseNodeID           uuid.UUID
+	leaseBindings         map[string]leaseBinding
+	leaseGeneration       map[string]uint64
+	leaseSeq              map[string]int64
+	leaseAccepted         map[string]ControlLease
+	leaseCancel           context.CancelFunc
 }
 
 // TechnicalVLESSPayloadAuthorized is deliberately false for technical
@@ -114,12 +114,12 @@ func New(ctx context.Context, config *Config) (*Instance, error) {
 		return nil, err
 	}
 	m := &Instance{
-		levels:               make(map[uint32]*Policy),
-		system:               config.System,
-		subscriptions:        subscriptions,
-		subscriptionPolicies: make(map[string]subscriptionrate.Policy),
-		usageSequences:       make(map[string]uint64),
-		profileGate:          sessionfence.New(),
+		levels:                make(map[uint32]*Policy),
+		system:                config.System,
+		subscriptions:         subscriptions,
+		subscriptionPolicies:  make(map[string]subscriptionrate.Policy),
+		usageSequences:        make(map[string]uint64),
+		profileGate:           sessionfence.New(),
 		technicalProvisioning: os.Getenv("ELXRAY_TECHNICAL_PROVISIONING") == "1",
 	}
 	if config.RequireSubscription {
