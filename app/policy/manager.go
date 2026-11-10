@@ -31,6 +31,7 @@ type Instance struct {
 	subscriptionMu       sync.Mutex
 	store                *policyStore
 	opJournal            *elxjournal.Journal
+	technicalProvisioning bool
 	usageIncarnation     [16]byte
 	usageSequences       map[string]uint64
 	subscriptionPolicies map[string]subscriptionrate.Policy
@@ -55,6 +56,13 @@ func New(ctx context.Context, config *Config) (*Instance, error) {
 		return nil, errors.New("ElX subscriptions require an explicit managed or standalone execution mode")
 	}
 	mode := os.Getenv("ELXRAY_MODE")
+	if option := os.Getenv("ELXRAY_TECHNICAL_PROVISIONING"); option != "" && option != "1" {
+		return nil, errors.New("unsupported ElXray technical provisioning mode")
+	}
+	if os.Getenv("ELXRAY_TECHNICAL_PROVISIONING") == "1" &&
+		(mode != "managed" || os.Getenv("ELXRAY_OP_JOURNAL") == "") {
+		return nil, errors.New("technical VLESS provisioning requires explicit managed mode with durable journal")
+	}
 	if mode != "" && mode != "managed" && mode != "standalone" {
 		return nil, errors.New("unsupported ElXray execution mode")
 	}
@@ -63,7 +71,7 @@ func New(ctx context.Context, config *Config) (*Instance, error) {
 	managedHints := []string{
 		"ELXRAY_REQUIRE_CONTROL_LEASE", "ELXRAY_CONTROL_LEASE_PUBLIC_KEY",
 		"ELXRAY_CONTROL_LEASE_NODE_UUID", "ELXRAY_CONTROL_LEASE_BINDINGS_FILE", "ELXRAY_OP_JOURNAL",
-		"ELXRAY_AGENT_UID", "ELXRAY_AGENT_GID",
+		"ELXRAY_AGENT_UID", "ELXRAY_AGENT_GID", "ELXRAY_TECHNICAL_PROVISIONING",
 	}
 	if mode != "managed" {
 		for _, key := range managedHints {
@@ -101,6 +109,7 @@ func New(ctx context.Context, config *Config) (*Instance, error) {
 		subscriptionPolicies: make(map[string]subscriptionrate.Policy),
 		usageSequences:       make(map[string]uint64),
 		profileGate:          sessionfence.New(),
+		technicalProvisioning: os.Getenv("ELXRAY_TECHNICAL_PROVISIONING") == "1",
 	}
 	if config.RequireSubscription {
 		m.unmanaged = subscriptionrate.New(0, 0)
