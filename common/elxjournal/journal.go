@@ -61,14 +61,14 @@ type LeaseWatermark struct {
 }
 
 type image struct {
-	Version        int                       `json:"version"`
-	StoreID        string                    `json:"storeId"`
-	Sequence       uint64                    `json:"sequence"`
-	Operations     map[string]Receipt        `json:"operations"`
-	Revisions      map[string]uint64         `json:"revisions"`
-	Generations    map[string]uint64         `json:"generations"`
-	Leases         map[string]LeaseWatermark `json:"leases"`
-	DeniedProfiles map[string]uint64         `json:"deniedProfiles"`
+	Version           int                         `json:"version"`
+	StoreID           string                      `json:"storeId"`
+	Sequence          uint64                      `json:"sequence"`
+	Operations        map[string]Receipt          `json:"operations"`
+	Revisions         map[string]uint64           `json:"revisions"`
+	Generations       map[string]uint64           `json:"generations"`
+	Leases            map[string]LeaseWatermark   `json:"leases"`
+	DeniedProfiles    map[string]uint64           `json:"deniedProfiles"`
 	TechnicalProfiles map[string]TechnicalProfile `json:"technicalProfiles,omitempty"`
 }
 type anchor struct {
