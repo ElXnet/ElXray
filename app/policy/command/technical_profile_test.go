@@ -18,6 +18,9 @@ func TestTechnicalProfileRPCRequiresAuthenticatedLocalPeer(t *testing.T) {
 	if _, err := s.prepare(ctx, wrapperspb.Bytes([]byte("{}"))); status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("unsigned remote profile preparation must fail before parsing: %v", err)
 	}
+	if _, err := s.install(ctx, wrapperspb.Bytes([]byte("{}"))); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("unsigned remote profile installation must fail before parsing: %v", err)
+	}
 	if _, err := s.readback(ctx, wrapperspb.String("00000000-0000-0000-0000-000000000001")); status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("remote profile readback must require Unix peercred: %v", err)
 	}
