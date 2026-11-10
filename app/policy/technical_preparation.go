@@ -68,11 +68,11 @@ func (m *Instance) PrepareTechnicalProfile(raw []byte) (elxjournal.TechnicalProf
 	prepared := elxjournal.TechnicalProfile{
 		ProfileID: g.ProfileID.String(), OperationID: g.OperationID.String(),
 		NodeID: g.NodeID.String(), ResourceID: g.ResourceID.String(),
-		ExecutorID: g.ExecutorID.String(),
+		ExecutorID:     g.ExecutorID.String(),
 		SubscriptionID: g.SubscriptionID, Email: g.Email,
 		InboundTag: g.InboundTag, ProfileGeneration: g.ProfileGeneration,
 		AuthorityGeneration: g.AuthorityGeneration,
-		PolicyRevision: g.PolicyRevision, NotAfterUnix: g.NotAfter,
+		PolicyRevision:      g.PolicyRevision, NotAfterUnix: g.NotAfter,
 		TranscriptSHA256: hex.EncodeToString(sum[:]), Phase: "PREPARED",
 	}
 	if err := m.opJournal.RecordTechnicalPrepared(prepared); err != nil {
