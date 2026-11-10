@@ -102,6 +102,65 @@ This is a narrow security hardening, **not** completion of dynamic VLESS
 installation, signed INSTALLED proof, retirement, durable reconciliation or
 cross-repository E2E. Stage 4 stays IN_PROGRESS, both PRs stay draft.
 
+## 2026-11-10 continuation: effective VLESS identity and signed INSTALL
+
+This section supersedes the previous "PREPARED only" description for the
+**draft branch**, without claiming production readiness.
+
+**Added / awaiting exact-head CI validation:**
+
+- VLESS `MemoryValidator.Add` now serializes user/email insertion and refuses
+  existing **normalized lookup UUIDs**. VLESS's `ProcessUUID` zeroes bytes
+  6 and 7; two distinct printed UUIDs may therefore authenticate as the same
+  VLESS user. Negative sequential and racing tests were added.
+- Journal rejects prepared UUIDs aliased to an existing profile or permanent
+  denial, and detects equivalent duplicates during durable restore.
+  Control's PostgreSQL reservation checks the same effective key, with a
+  unique expression index in draft migration `023_technical_profiles.sql`.
+  Before using this migration on a database where 023 was already applied,
+  a separate forward migration and a review of existing identities is needed.
+- A new **`elx-profile-grant-v2`** Ed25519 transcript binds the exact
+  `Flow` value (`xtls-rprx-vision` or empty) for technical `INSTALL`.
+  Version-1 PREPARE golden vectors are unchanged. The v2 cross-repository
+  SHA-256 vector is
+  `0584a0a5bab7efee61d1c244cf0ec45deea7730f0dbe562c15c564273f3d033a`.
+- The core exposes authenticated Unix Commander `TechnicalProfile/Install`
+  on the Stage-4 opt-in. It requires a separately signed v2 INSTALL
+  referring to the matching durable PREPARED record, a fresh live lease,
+  exact node/resource/executor, existing VLESS inbound and paid policy.
+- The journal saves `INSTALLING` **before** changing the live VLESS user.
+  A crash in this state prevents managed startup until reconciliation.
+  `INSTALLED` is saved only after the live VLESS user is read back and
+  matches UUID/email/flow. Local readback also rechecks live registration.
+  No payload admission is granted by either state.
+- A corresponding Control corepolicy client adapter can call the protected
+  INSTALL RPC; this alone cannot issue a job or record a Control APPLIED ACK.
+  Journal, signature, peer-auth, alias and replay regressions were expanded.
+
+**Still P0 / no rollout:**
+
+1. Control must **durably queue, sign, deliver and reconcile** INSTALL
+   independently of the PREPARE grant. The existing Control agent currently
+   polls PREPARE only; a client adapter is not a job issuer.
+2. Implement core-signed `INSTALLED` evidence bound to core incarnation,
+   operation, store and live user; verify it in Control before moving
+   INTENT to APPLIED. A local unsigned readback is insufficient.
+3. Reconcile interrupted `INSTALLING` operations and rehydrate INSTALLED
+   profiles after reboot (or explicitly quarantine/reprovision), with exact
+   trust and attestation checks. Current boot **fails closed** on uncertain
+   install and does not silently admit payload from stored INSTALLED.
+4. Implement signed retire/update and permanent drain across inbounds,
+   plus rollback/reload/restart and concurrent duplicate tests.
+5. Complete the exact paired-head CI, PostgreSQL two-node E2E, fsync/power
+   loss tests, Linux protected socket tests, and externally unavailable
+   tests as NOT RUN. Earlier Windows journal test failed because Windows
+   rejects Unix-style directory fsync; tests now skip only that unsupported
+   managed durability environment, rather than weaken production fsync.
+
+**Security:** Do not enable `ELXRAY_TECHNICAL_PROVISIONING=1` on production.
+The opt-in continues to reject all managed VLESS payload until later
+device-proof/owner admission is implemented. Draft PRs stay unmerged.
+
 ## P0 work still required before DONE
 
 1. Add *durably verified dynamic* VLESS `AddUser` through the dedicated
