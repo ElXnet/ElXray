@@ -129,7 +129,7 @@ func (j *Journal) RecordTechnicalPrepared(p TechnicalProfile) error {
 			(previous.NodeID == p.NodeID &&
 				previous.ExecutorID == p.ExecutorID &&
 				previous.InboundTag == p.InboundTag &&
-				previous.Email == p.Email) {
+				previous.Email == p.Email && previous.Phase != "RETIRED") {
 			return ErrCollision
 		}
 	}
