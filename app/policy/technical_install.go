@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -13,15 +14,23 @@ import (
 	xrayuuid "github.com/xtls/xray-core/common/uuid"
 	"github.com/xtls/xray-core/core"
 	inboundfeature "github.com/xtls/xray-core/features/inbound"
-	"github.com/xtls/xray-core/proxy"
 	"github.com/xtls/xray-core/proxy/vless"
-	vlessinbound "github.com/xtls/xray-core/proxy/vless/inbound"
 )
+
+// technicalVLESSUserManager matches only the minimal methods required by
+// signed technical installation. It deliberately avoids importing proxy,
+// whose dispatcher dependency would create a package import cycle.
+type technicalVLESSUserManager interface {
+	AddUser(context.Context, *protocol.MemoryUser) error
+	RemoveUser(context.Context, string) error
+	GetUser(context.Context, string) *protocol.MemoryUser
+	GetUsers(context.Context) []*protocol.MemoryUser
+}
 
 // technicalVLESSHandler resolves only an existing, exact-tag VLESS inbound.
 // It deliberately cannot add/remove inbound listeners or mutate a non-VLESS
 // handler. The legacy HandlerService/AddUser path remains denied in managed mode.
-func (m *Instance) technicalVLESSHandler(tag string) (*vlessinbound.Handler, error) {
+func (m *Instance) technicalVLESSHandler(tag string) (technicalVLESSUserManager, error) {
 	if m == nil || m.runtimeContext == nil {
 		return nil, elxjournal.ErrUncertain
 	}
@@ -37,18 +46,18 @@ func (m *Instance) technicalVLESSHandler(tag string) (*vlessinbound.Handler, err
 	if err != nil {
 		return nil, elxjournal.ErrStale
 	}
-	getter, ok := handler.(proxy.GetInbound)
+	getter, ok := handler.(interface{ ElXVLESSTechnicalUsers() any })
 	if !ok {
 		return nil, elxjournal.ErrInvalid
 	}
-	vlessHandler, ok := getter.GetInbound().(*vlessinbound.Handler)
+	users, ok := getter.ElXVLESSTechnicalUsers().(technicalVLESSUserManager)
 	if !ok {
 		return nil, elxjournal.ErrInvalid
 	}
-	return vlessHandler, nil
+	return users, nil
 }
 
-func liveTechnicalUserMatches(handler *vlessinbound.Handler, email string, id uuid.UUID, flow string) bool {
+func liveTechnicalUserMatches(handler technicalVLESSUserManager, email string, id uuid.UUID, flow string) bool {
 	if handler == nil {
 		return false
 	}
