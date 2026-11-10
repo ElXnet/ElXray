@@ -23,7 +23,7 @@ func (m *Instance) SignedTechnicalRetireReceipt(raw []byte) (elxprovision.Retire
 		return empty, elxprovision.ErrUnauthorized
 	}
 	var selector struct {
-		Grant struct { SubscriptionID string }
+		Grant struct{ SubscriptionID string }
 	}
 	if json.Unmarshal(raw, &selector) != nil || selector.Grant.SubscriptionID == "" {
 		return empty, elxprovision.ErrInvalid
