@@ -23,6 +23,7 @@ type technicalProfileService interface {
 	prepare(context.Context, *wrapperspb.BytesValue) (*wrapperspb.BytesValue, error)
 	install(context.Context, *wrapperspb.BytesValue) (*wrapperspb.BytesValue, error)
 	installedProof(context.Context, *wrapperspb.BytesValue) (*wrapperspb.BytesValue, error)
+	retire(context.Context, *wrapperspb.BytesValue) (*wrapperspb.BytesValue, error)
 	readback(context.Context, *wrapperspb.StringValue) (*wrapperspb.BytesValue, error)
 }
 
@@ -104,6 +105,35 @@ func (s *technicalProfileServer) install(ctx context.Context,
 // installedProof never accepts an agent-authored receipt; the running core
 // verifies Control's INSTALL job, live VLESS registration and durable store
 // before signing a node/executor/boot-scoped proof with its own private key.
+// retire is a separately signed v2 control-plane mutation. It never frees
+// a device/owner slot; the core permanently fences the effective VLESS UUID
+// before deleting a live user, with crash-uncertain RETIRING quarantine.
+func (s *technicalProfileServer) retire(ctx context.Context,
+	request *wrapperspb.BytesValue,
+) (*wrapperspb.BytesValue, error) {
+	if err := checkLocalPeer(ctx); err != nil {
+		return nil, err
+	}
+	if request == nil || len(request.Value) == 0 || len(request.Value) > 4096 {
+		return nil, status.Error(codes.InvalidArgument, "missing signed Control retire job")
+	}
+	retirer, ok := s.manager.(interface {
+		RetireTechnicalProfile([]byte) (elxjournal.TechnicalProfile, error)
+	})
+	if !ok {
+		return nil, status.Error(codes.FailedPrecondition, "technical retire controller unavailable")
+	}
+	record, err := retirer.RetireTechnicalProfile(request.Value)
+	if err != nil {
+		return nil, technicalError(err)
+	}
+	data, err := json.Marshal(record)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "technical retire readback encoding failed")
+	}
+	return wrapperspb.Bytes(data), nil
+}
+
 func (s *technicalProfileServer) installedProof(ctx context.Context,
 	request *wrapperspb.BytesValue,
 ) (*wrapperspb.BytesValue, error) {
@@ -186,6 +216,7 @@ func registerTechnicalProfile(server *grpc.Server, manager policy.SubscriptionCo
 			{MethodName: "Prepare", Handler: technicalHandler("Prepare", (*technicalProfileServer).prepare)},
 			{MethodName: "Install", Handler: technicalHandler("Install", (*technicalProfileServer).install)},
 			{MethodName: "InstalledProof", Handler: technicalHandler("InstalledProof", (*technicalProfileServer).installedProof)},
+			{MethodName: "Retire", Handler: technicalHandler("Retire", (*technicalProfileServer).retire)},
 			{MethodName: "Readback", Handler: technicalHandler("Readback", (*technicalProfileServer).readback)},
 		},
 	}, &technicalProfileServer{manager: manager})
