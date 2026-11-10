@@ -1,6 +1,7 @@
 package elxprovision
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"encoding/json"
 	"errors"
@@ -57,5 +58,32 @@ func TestControlProfileWireRejectsForgedOrAmbiguousJob(t *testing.T) {
 		grant.NodeID, grant.ExecutorID, grant.ResourceID,
 		time.Unix(grant.NotAfter+1, 0)); err == nil {
 		t.Fatal("expired job accepted")
+	}
+}
+
+func TestControlProfileWireRejectsDuplicateAndCaseFoldedKeys(t *testing.T) {
+	grant, private := testGrant(t)
+	signature := append([]byte(nil), grant.Signature...)
+	grant.Signature = nil
+	valid, err := json.Marshal(ControlJob{Grant: grant, Signature: signature})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pinned := private.Public().(ed25519.PublicKey)
+	now := time.Unix(1700000008, 0)
+	for name, raw := range map[string][]byte{
+		"outer-exact": append(append([]byte(nil), valid[:len(valid)-1]...), []byte(`,"Signature":null}`)...),
+		"outer-case-folded": append(append([]byte(nil), valid[:len(valid)-1]...), []byte(`,"signature":null}`)...),
+		"nested-exact": bytes.Replace(valid, []byte(`"SubscriptionID":"lab"`), []byte(`"SubscriptionID":"lab","SubscriptionID":"other"`), 1),
+		"nested-case-folded": bytes.Replace(valid, []byte(`"SubscriptionID":"lab"`), []byte(`"SubscriptionID":"lab","subscriptionid":"other"`), 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if bytes.Equal(raw, valid) {
+				t.Fatal("fixture mutation did not change wire")
+			}
+			if _, err := DecodeControlJob(raw, pinned, grant.NodeID, grant.ExecutorID, grant.ResourceID, now); !errors.Is(err, ErrInvalid) {
+				t.Fatalf("ambiguous signed JSON accepted: %v", err)
+			}
+		})
 	}
 }
