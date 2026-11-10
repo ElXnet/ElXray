@@ -247,6 +247,46 @@ The workflow in `docs/elx/stage-workflow.md` now formally separates
 `IN_PROGRESS`, `TESTING` and `DONE`. The Stage-4 status is still
 `IN_PROGRESS` while these P0 functional/proof gaps remain.
 
+### 2026-11-11: read-only lost-ACK recovery (Draft)
+
+A live core may finish an independently signed, durably journaled v2
+`INSTALL` or `RETIRE` while the Control confirmation is lost. After the
+short-lived original signed job has expired it must **never be replayed as a
+fresh mutation**. This branch now provides:
+
+- Core `RecoverInstalledProof(profileID/operationID)` and
+  `RecoverRetiredProof(profileID/operationID)` over the original authenticated
+  local Unix RPC, requiring the **exact** immutable journal terminal state,
+  the originally recorded transcript digest and current live VLESS
+  presence/absence. The core signs a new receipt using the protected core
+  private key and new/known boot identity, **without a new AddUser/RemoveUser**.
+- Control's mTLS-scoped, bounded `TechnicalRecoveryNext` returns at most
+  eight old `INTENT` install/retire operations. The agent validates node,
+  executor, resource, generation and independently pinned core public key.
+  It relays only a valid signed receipt to the existing PostgreSQL
+  `TechnicalInstallConfirm` / `TechnicalRetireConfirm` transaction, which
+  independently reconstructs the original Control transcript and checks
+  pinned store/boot/identity.
+- Failure or no proof leaves the central operation in `INTENT`, preserving
+  purchased capacity and denying any implied owner/device admission.
+  Uncertain `INSTALLING` or `RETIRING` is NEVER auto-promoted; an operator
+  must reconcile it with independent evidence. This read-only path is
+  disabled unless `ELX_AGENT_TECHNICAL_RECOVERY=1` is explicitly set in
+  managed agent mode.
+
+**Status:** code and negative tests submitted; exact-head PostgreSQL,
+two-core end-to-end recovery (expired job, lost Control ACK, restart and
+foreign signed proof), race and static checks are still **NOT RUN/PENDING**
+at this new SHA. This feature is NOT production-authorized and Stage 4
+remains `IN_PROGRESS`.
+
+The attested scheduler E2E exposed an additional race when a recent
+signed lease's independent store HWM became stale during a reserved rate
+reduction. The managed agent now quarantines *only* that exact proof-refresh
+denial as a pending retry, never grants rates or confirms an operation
+without core-signed APPLIED. Verify continued progress under a two-node
+real-core scheduler test before moving this item to `TESTING`.
+
 ### Remaining release-blocking gates
 
 - CI on the paired latest heads, including gofumpt, go vet, full Go/race tests,
