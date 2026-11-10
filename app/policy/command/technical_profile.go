@@ -24,6 +24,7 @@ type technicalProfileService interface {
 	install(context.Context, *wrapperspb.BytesValue) (*wrapperspb.BytesValue, error)
 	installedProof(context.Context, *wrapperspb.BytesValue) (*wrapperspb.BytesValue, error)
 	retire(context.Context, *wrapperspb.BytesValue) (*wrapperspb.BytesValue, error)
+	retiredProof(context.Context, *wrapperspb.BytesValue) (*wrapperspb.BytesValue, error)
 	readback(context.Context, *wrapperspb.StringValue) (*wrapperspb.BytesValue, error)
 }
 
@@ -134,6 +135,35 @@ func (s *technicalProfileServer) retire(ctx context.Context,
 	return wrapperspb.Bytes(data), nil
 }
 
+// retiredProof is the core's independent Ed25519 attestation for a durable
+// tombstone plus complete live VLESS UUID absence. A local agent may relay the
+// proof, but cannot assert Control APPLIED without PostgreSQL verification.
+func (s *technicalProfileServer) retiredProof(ctx context.Context,
+	request *wrapperspb.BytesValue,
+) (*wrapperspb.BytesValue, error) {
+	if err := checkLocalPeer(ctx); err != nil {
+		return nil, err
+	}
+	if request == nil || len(request.Value) == 0 || len(request.Value) > 4096 {
+		return nil, status.Error(codes.InvalidArgument, "missing signed Control RETIRE job")
+	}
+	signer, ok := s.manager.(interface {
+		SignedTechnicalRetireReceipt([]byte) (elxprovision.RetireReceipt, error)
+	})
+	if !ok {
+		return nil, status.Error(codes.FailedPrecondition, "core technical RETIRE attestation unavailable")
+	}
+	proof, err := signer.SignedTechnicalRetireReceipt(request.Value)
+	if err != nil {
+		return nil, technicalError(err)
+	}
+	payload, err := json.Marshal(proof)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "retired proof encoding failed")
+	}
+	return wrapperspb.Bytes(payload), nil
+}
+
 func (s *technicalProfileServer) installedProof(ctx context.Context,
 	request *wrapperspb.BytesValue,
 ) (*wrapperspb.BytesValue, error) {
@@ -217,6 +247,7 @@ func registerTechnicalProfile(server *grpc.Server, manager policy.SubscriptionCo
 			{MethodName: "Install", Handler: technicalHandler("Install", (*technicalProfileServer).install)},
 			{MethodName: "InstalledProof", Handler: technicalHandler("InstalledProof", (*technicalProfileServer).installedProof)},
 			{MethodName: "Retire", Handler: technicalHandler("Retire", (*technicalProfileServer).retire)},
+			{MethodName: "RetiredProof", Handler: technicalHandler("RetiredProof", (*technicalProfileServer).retiredProof)},
 			{MethodName: "Readback", Handler: technicalHandler("Readback", (*technicalProfileServer).readback)},
 		},
 	}, &technicalProfileServer{manager: manager})
