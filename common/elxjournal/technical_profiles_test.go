@@ -302,4 +302,16 @@ func TestTechnicalRetirePersistsTombstoneBeforeLiveRemovalAndSurvivesRestart(t *
 	if err := final.RecordTechnicalPrepared(alias); !errors.Is(err, ErrStale) {
 		t.Fatalf("retired effective UUID alias reissued: %v", err)
 	}
+	// Updating a technical identity is explicit retire + fresh PREPARE/INSTALL,
+	// never in-place UUID mutation. Reuse of an email after verified RETIRED
+	// is permitted only with a distinct, previously unseen VLESS UUID.
+	replacement := p
+	replacement.ProfileID = uuid.NewString()
+	replacement.OperationID = uuid.NewString()
+	if err := final.RecordTechnicalPrepared(replacement); err != nil {
+		t.Fatalf("safe retired-email rotation was rejected: %v", err)
+	}
+	if _, err := Open(path); err != nil {
+		t.Fatalf("fresh replacement invalidated old tombstone snapshot: %v", err)
+	}
 }
