@@ -30,6 +30,7 @@ func (s *service) Register(server *grpc.Server) {
 	registerProfileFence(server, s.manager)
 	registerControlLease(server, s.manager)
 	registerRateBarrier(server, s.manager)
+	registerTechnicalProfile(server, s.manager)
 }
 
 // The standard Commander transport has no authentication. Refuse remote peers
