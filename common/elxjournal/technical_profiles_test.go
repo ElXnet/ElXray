@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -25,6 +26,9 @@ func technicalFixture() TechnicalProfile {
 }
 
 func TestTechnicalProfileDurablePreparationCannotBecomeAdmission(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("managed durable journal requires Unix directory fsync; Windows must fail closed")
+	}
 	path := filepath.Join(t.TempDir(), "managed-v2.json")
 	if err := Provision(path, uuid.NewString()); err != nil {
 		t.Fatal(err)
@@ -84,6 +88,9 @@ func TestTechnicalProfileDurablePreparationCannotBecomeAdmission(t *testing.T) {
 }
 
 func TestTechnicalProfileCannotReuseDurableDeniedUUID(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("managed durable journal requires Unix directory fsync; Windows must fail closed")
+	}
 	path := filepath.Join(t.TempDir(), "managed-v2.json")
 	if err := Provision(path, uuid.NewString()); err != nil {
 		t.Fatal(err)
