@@ -204,6 +204,49 @@ demotes *both* node agent and signed-usage reporter before accessing the
 protected socket, instead of weakening SO_PEERCRED. Exact-head CI acceptance
 for this correction remains unconfirmed.
 
+### 2026-11-10 continuation: bounded signed RETIRE and scheduler CI
+
+Stage 4 now includes a distinct Control-authoritative v2 `RETIRE` reservation,
+mTLS delivery, protected core `Retire` and `RetiredProof` methods, and Control
+verification against its independently pinned core key/store/boot before the
+transactional technical-profile `retired`/operation `APPLIED` transition.
+The core writes `RETIRING` and a permanent effective-UUID tombstone in one
+durable journal snapshot **before** attempting live VLESS removal. It also
+denies the profile in its runtime session fence and waits for tracked flows
+to close. Unknown outcomes retain the tombstone and fail closed. A retired
+email may be reused only by a new profile with a *different* effective VLESS
+UUID; the retired ID or its alias is never resurrected. No owner slot,
+bandwidth allocation or paid subscription entitlement is freed by RETIRE.
+
+Control's two-node signed-demand scheduler E2E has progressed past its former
+`usage0/usage1` Unix peer-credential mismatch: both signed core pressure
+samples are now accepted. A new failure then exposed that the agent tried a
+reserved speed **increase** against an older signed lease ceiling. The Control
+lease issuer now derives the ceiling from the maximum of the committed rate
+and an existing durable, not-finalized `elx_rate_moves` reservation. The
+agent only retries the *same* managed operation after obtaining a new
+Control-signed lease; invalid signature/identity paths remain denied. New
+end-to-end CI for this fix is still queued, not a confirmed PASS.
+
+These changes are on Draft branches and have NOT completed paired-head CI.
+Review these limitations before promotion:
+
+- Core restart after `INSTALLING` / `RETIRING` remains quarantined, not
+  silently reconciled. Recovery must establish the actual live VLESS state
+  and obtain Control-approved rebind/rebuild evidence before release
+- Signed 60-second operation expiry and lost Control ACK need a safe read-only
+  recovery protocol to reconcile installed/retired outcomes without replaying
+  stale mutations
+- All-inbound effective-UUID alias draining and no-bypass reload require a
+  complete cross-inbound test on real VLESS before declaring coverage
+- A complete PostgreSQL-backed two-core PREPARE/INSTALL/RETIRE/confirm/deny
+  E2E on mutually pinned exact heads has not passed yet
+- Retire and install Go formatting, static, race, and platform CI are pending
+
+The workflow in `docs/elx/stage-workflow.md` now formally separates
+`IN_PROGRESS`, `TESTING` and `DONE`. The Stage-4 status is still
+`IN_PROGRESS` while these P0 functional/proof gaps remain.
+
 ### Remaining release-blocking gates
 
 - CI on the paired latest heads, including gofumpt, go vet, full Go/race tests,
