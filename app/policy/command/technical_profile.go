@@ -45,7 +45,8 @@ func technicalError(err error) error {
 }
 
 func (s *technicalProfileServer) prepare(ctx context.Context,
-	request *wrapperspb.BytesValue) (*wrapperspb.BytesValue, error) {
+	request *wrapperspb.BytesValue,
+) (*wrapperspb.BytesValue, error) {
 	if err := checkLocalPeer(ctx); err != nil {
 		return nil, err
 	}
@@ -70,7 +71,8 @@ func (s *technicalProfileServer) prepare(ctx context.Context,
 }
 
 func (s *technicalProfileServer) readback(ctx context.Context,
-	request *wrapperspb.StringValue) (*wrapperspb.BytesValue, error) {
+	request *wrapperspb.StringValue,
+) (*wrapperspb.BytesValue, error) {
 	if err := checkLocalPeer(ctx); err != nil {
 		return nil, err
 	}
@@ -99,7 +101,8 @@ func technicalHandler[Request, Response any](
 	call func(*technicalProfileServer, context.Context, *Request) (*Response, error),
 ) grpc.MethodHandler {
 	return func(service any, ctx context.Context, decode func(any) error,
-		interceptor grpc.UnaryServerInterceptor) (any, error) {
+		interceptor grpc.UnaryServerInterceptor,
+	) (any, error) {
 		request := new(Request)
 		if err := decode(request); err != nil {
 			return nil, err
