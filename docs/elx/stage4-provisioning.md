@@ -79,6 +79,29 @@ later owner/device-proof mechanism has not been implemented.
    non-admitting readback. Also corrected a Windows MASQUE test to
    check a shared port is available for both TCP and UDP before launch.
 
+## 2026-11-10 continuation: signed job JSON ambiguity
+
+Both Stage-4 branches now reject duplicate JSON object keys (including
+case-folded aliases matched by Go's `encoding/json` struct decoder) before
+accepting a signed technical preparation envelope. The check is recursive,
+including nested `Grant` fields, and rejects concatenated documents.
+
+- Core: `common/elxprovision/json_keys.go` is invoked by
+  `DecodeControlJob`; `wire_test.go` has negative cases.
+- Control agent: `policytransport/profile_job_json.go` is invoked before
+  unmarshalling `TechnicalProfileJob`; `profile_job_json_test.go` covers
+  exact duplicates, case aliases and trailing documents.
+- Core PR #22 head at this change: `56d0539a8e5be69cfa93a21c24585e1d1c6e7354`
+  (additional documentation commit follows).
+- Control PR #23 head: `ae15c07a69c97fc9aa2de3978f588eb2abc83337`.
+- CI for these heads was **QUEUED** when checked. No Go unit/race/vet
+  results for these exact heads are claimed as passing. Core local
+  full-repository testing was not possible in this execution environment.
+
+This is a narrow security hardening, **not** completion of dynamic VLESS
+installation, signed INSTALLED proof, retirement, durable reconciliation or
+cross-repository E2E. Stage 4 stays IN_PROGRESS, both PRs stay draft.
+
 ## P0 work still required before DONE
 
 1. Add *durably verified dynamic* VLESS `AddUser` through the dedicated
