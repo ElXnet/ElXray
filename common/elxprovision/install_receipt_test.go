@@ -18,10 +18,10 @@ func TestInstallReceiptGoldenAndTampering(t *testing.T) {
 	proof := InstallReceipt{
 		Version: 1, OperationID: grant.OperationID, ProfileID: grant.ProfileID,
 		NodeID: grant.NodeID, ExecutorID: grant.ExecutorID, ResourceID: grant.ResourceID,
-		StoreID: uuid.MustParse("66666666-6666-4666-8666-666666666666"),
-		CoreIncarnation: uuid.MustParse("77777777-7777-4777-8777-777777777777"),
+		StoreID:             uuid.MustParse("66666666-6666-4666-8666-666666666666"),
+		CoreIncarnation:     uuid.MustParse("77777777-7777-4777-8777-777777777777"),
 		AuthorityGeneration: grant.AuthorityGeneration,
-		PolicyRevision: grant.PolicyRevision, TranscriptSHA256: hex.EncodeToString(digest[:]),
+		PolicyRevision:      grant.PolicyRevision, TranscriptSHA256: hex.EncodeToString(digest[:]),
 	}
 	const golden = "d67adcec0bc268b849ff498f4e9821865698c823c62f107d2a6fe5f3c91fb253"
 	actual := sha256.Sum256(proof.Transcript())
