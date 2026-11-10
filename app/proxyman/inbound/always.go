@@ -208,6 +208,23 @@ func (h *AlwaysOnInboundHandler) GetInbound() proxy.Inbound {
 	return h.proxy
 }
 
+// ElXVLESSTechnicalUsers exposes only a concrete VLESS user manager.
+// Policy uses structural interfaces rather than importing proxy/dispatcher,
+// avoiding an app/policy ↔ app/dispatcher dependency cycle.
+func (h *AlwaysOnInboundHandler) ElXVLESSTechnicalUsers() any {
+	if h == nil || h.proxy == nil {
+		return nil
+	}
+	if _, ok := h.proxy.(interface{ ElXManagedVLESS() }); !ok {
+		return nil
+	}
+	manager, ok := h.proxy.(proxy.UserManager)
+	if !ok {
+		return nil
+	}
+	return manager
+}
+
 // ReceiverSettings implements inbound.Handler.
 func (h *AlwaysOnInboundHandler) ReceiverSettings() *serial.TypedMessage {
 	return serial.ToTypedMessage(h.receiverConfig)
