@@ -105,6 +105,14 @@ func (m *Instance) RetireTechnicalProfile(raw []byte) (elxjournal.TechnicalProfi
 	// globally, across every inbound sharing the same tracked profile.
 	// Deleting the VLESS validator entry alone does not close existing TCP
 	// sessions. Follow the same stop-and-wait fence as Stage 3 profile drain.
+	// PREPARED profiles were intentionally never added to the validator,
+	// so their gate entry may not exist yet. Registering only creates a
+	// non-admitting slot; the durable tombstone is already persisted and
+	// Deny is the very next operation under the subscription lock.
+	if !m.profileGate.Register([16]byte(grant.ProfileID)) {
+		m.store.failed = true
+		return empty, elxjournal.ErrUncertain
+	}
 	stops, err := m.profileGate.Deny([16]byte(grant.ProfileID))
 	if err != nil {
 		m.store.failed = true
