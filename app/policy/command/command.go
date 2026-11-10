@@ -85,6 +85,10 @@ func rpcError(err error) error {
 		return status.Error(codes.FailedPrecondition, err.Error())
 	case errors.Is(err, subscriptionrate.ErrConflict):
 		return status.Error(codes.Aborted, err.Error())
+	case errors.Is(err, subscriptionrate.ErrLeaseCeiling):
+		// Narrow, separately classified signed-lease refresh needed.
+		// Other authorization failures are never eligible for agent retry.
+		return status.Error(codes.PermissionDenied, err.Error())
 	case errors.Is(err, subscriptionrate.ErrUnauthorized):
 		return status.Error(codes.PermissionDenied, err.Error())
 	case errors.Is(err, subscriptionrate.ErrInvalid):
