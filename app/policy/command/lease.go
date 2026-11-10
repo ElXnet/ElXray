@@ -2,9 +2,9 @@ package command
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
-	"encoding/json"
 
 	"google.golang.org/grpc/metadata"
 
