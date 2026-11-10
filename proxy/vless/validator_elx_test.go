@@ -91,3 +91,23 @@ func TestMemoryValidatorRejectsInvalidUser(t *testing.T) {
 		t.Fatal("accepted missing VLESS account")
 	}
 }
+
+func TestMemoryValidatorAccountsWithoutEmailStillBlockUUIDAliases(t *testing.T) {
+	var validator MemoryValidator
+	id := uuid.New()
+	hidden := testVLESSMemoryUser(id, "")
+	if err := validator.Add(hidden); err != nil {
+		t.Fatal(err)
+	}
+	if validator.GetCount() != 1 || len(validator.GetAll()) != 1 {
+		t.Fatal("active VLESS identity with empty email disappeared from inventory")
+	}
+	alias := id
+	alias[6] ^= 1
+	if err := validator.Add(testVLESSMemoryUser(alias, "new@lab")); err == nil {
+		t.Fatal("effective VLESS UUID of empty-email account was overwritten")
+	}
+	if validator.Get(alias) != hidden || validator.GetCount() != 1 {
+		t.Fatal("failed alias insertion changed live VLESS identity")
+	}
+}
