@@ -192,9 +192,8 @@ func TestManagedLeaseCeilingRetryNeverMasksUntrustedOperation(t *testing.T) {
 	// ceiling race, even when the desired target rate is above the lease.
 	forged := command
 	forged.PayloadSHA256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	if _, err := m.UpdateManagedSubscription(raise, forged);
-		!errors.Is(err, subscriptionrate.ErrUnauthorized) ||
-			errors.Is(err, subscriptionrate.ErrLeaseCeiling) {
+	if _, err := m.UpdateManagedSubscription(raise, forged); !errors.Is(err, subscriptionrate.ErrUnauthorized) ||
+		errors.Is(err, subscriptionrate.ErrLeaseCeiling) {
 		t.Fatalf("forged Control operation was made retryable: %v", err)
 	}
 }
