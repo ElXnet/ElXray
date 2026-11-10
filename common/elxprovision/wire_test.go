@@ -28,12 +28,12 @@ func TestControlProfileWireRejectsForgedOrAmbiguousJob(t *testing.T) {
 	for name, mutate := range map[string]func(*ControlJob){
 		"foreign-executor": func(x *ControlJob) { x.Grant.ExecutorID = x.Grant.NodeID },
 		"foreign-resource": func(x *ControlJob) { x.Grant.ResourceID = x.Grant.NodeID },
-		"wrong-operation": func(x *ControlJob) { x.Grant.OperationID = x.Grant.NodeID },
-		"wrong-epoch": func(x *ControlJob) { x.Grant.AuthorityGeneration++ },
-		"wrong-inbound": func(x *ControlJob) { x.Grant.InboundTag = "fake-inbound" },
-		"bad-signature": func(x *ControlJob) { x.Signature[0] ^= 1 },
+		"wrong-operation":  func(x *ControlJob) { x.Grant.OperationID = x.Grant.NodeID },
+		"wrong-epoch":      func(x *ControlJob) { x.Grant.AuthorityGeneration++ },
+		"wrong-inbound":    func(x *ControlJob) { x.Grant.InboundTag = "fake-inbound" },
+		"bad-signature":    func(x *ControlJob) { x.Signature[0] ^= 1 },
 		"nested-signature": func(x *ControlJob) { x.Grant.Signature = sig },
-	}{
+	} {
 		t.Run(name, func(t *testing.T) {
 			bad := job
 			bad.Signature = append([]byte(nil), sig...)
