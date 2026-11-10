@@ -35,7 +35,7 @@ func TestRecoveredTechnicalIdentityNeverGrantsPayloadAndRestoresExactInstalledUs
 		OperationID: op.String(), SubscriptionID: "lab", Email: "device@lab",
 		InboundTag: "vless-reality-01", ProfileGeneration: 1,
 		AuthorityGeneration: 9, PolicyRevision: 1,
-		NotAfterUnix: time.Now().Add(time.Minute).Unix(),
+		NotAfterUnix:     time.Now().Add(time.Minute).Unix(),
 		TranscriptSHA256: hex.EncodeToString(hash[:]), Phase: "PREPARED",
 	}
 	if err := journal.BootstrapResource(p.ResourceID, 1, 9); err != nil {
@@ -46,7 +46,7 @@ func TestRecoveredTechnicalIdentityNeverGrantsPayloadAndRestoresExactInstalledUs
 	}
 	manager := &Instance{
 		technicalProvisioning: true,
-		opJournal: journal, store: &policyStore{},
+		opJournal:             journal, store: &policyStore{},
 		leaseNodeID: node,
 		leaseBindings: map[string]leaseBinding{"lab": {
 			ResourceID: resource, ExecutorID: executor, MinAuthorityGeneration: 9,
@@ -74,12 +74,10 @@ func TestRecoveredTechnicalIdentityNeverGrantsPayloadAndRestoresExactInstalledUs
 	}
 	key := ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize))
 	manager.store.key = key
-	if evidence, err := manager.recoveryTechnicalProfile(p.ProfileID, installOp, "INSTALLED");
-		err != nil || evidence.InstallOperationID != installOp {
+	if evidence, err := manager.recoveryTechnicalProfile(p.ProfileID, installOp, "INSTALLED"); err != nil || evidence.InstallOperationID != installOp {
 		t.Fatalf("durable expired-op installed proof lookup failed: %+v %v", evidence, err)
 	}
-	if _, err := manager.recoveryTechnicalProfile(p.ProfileID, uuid.NewString(), "INSTALLED");
-		!errors.Is(err, elxjournal.ErrStale) {
+	if _, err := manager.recoveryTechnicalProfile(p.ProfileID, uuid.NewString(), "INSTALLED"); !errors.Is(err, elxjournal.ErrStale) {
 		t.Fatalf("wrong historic INSTALL operation recovered: %v", err)
 	}
 	rehydrated, err := manager.RecoveredTechnicalProfiles(p.InboundTag)
@@ -109,12 +107,10 @@ func TestRecoveredTechnicalIdentityNeverGrantsPayloadAndRestoresExactInstalledUs
 	if _, err := journal.MarkTechnicalRetired(p.ProfileID, retireOp); err != nil {
 		t.Fatal(err)
 	}
-	if evidence, err := manager.recoveryTechnicalProfile(p.ProfileID, retireOp, "RETIRED");
-		err != nil || evidence.RetireOperationID != retireOp {
+	if evidence, err := manager.recoveryTechnicalProfile(p.ProfileID, retireOp, "RETIRED"); err != nil || evidence.RetireOperationID != retireOp {
 		t.Fatalf("durable retired recovery lookup failed: %+v %v", evidence, err)
 	}
-	if _, err := manager.recoveryTechnicalProfile(p.ProfileID, installOp, "INSTALLED");
-		!errors.Is(err, elxjournal.ErrStale) {
+	if _, err := manager.recoveryTechnicalProfile(p.ProfileID, installOp, "INSTALLED"); !errors.Is(err, elxjournal.ErrStale) {
 		t.Fatalf("old installed proof was revived after RETIRE: %v", err)
 	}
 	done, err := manager.RecoveredTechnicalProfiles(p.InboundTag)
