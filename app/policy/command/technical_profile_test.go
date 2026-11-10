@@ -63,14 +63,14 @@ func TestTechnicalProfileErrorsCannotMasqueradeAsAppliedReceipt(t *testing.T) {
 func TestTechnicalRecoverySelectorRejectsAmbiguousAndNonCanonicalOperations(t *testing.T) {
 	id := "11111111-1111-4111-8111-111111111111"
 	op := "22222222-2222-4222-8222-22222222222a"
-	if gotID, gotOp, err := technicalRecoveryIDs(id+"/"+op); err != nil || gotID != id || gotOp != op {
+	if gotID, gotOp, err := technicalRecoveryIDs(id + "/" + op); err != nil || gotID != id || gotOp != op {
 		t.Fatalf("canonical read-only recovery IDs rejected: %q %q %v", gotID, gotOp, err)
 	}
 	for _, raw := range []string{
-		"", id, id+"/"+op+"/extra", id+"/"+id+" ",
-		"00000000-0000-0000-0000-000000000000/"+op,
-		id+"/00000000-0000-0000-0000-000000000000",
-		id+"/"+strings.ToUpper(op),
+		"", id, id + "/" + op + "/extra", id + "/" + id + " ",
+		"00000000-0000-0000-0000-000000000000/" + op,
+		id + "/00000000-0000-0000-0000-000000000000",
+		id + "/" + strings.ToUpper(op),
 	} {
 		if _, _, err := technicalRecoveryIDs(raw); err == nil {
 			t.Fatalf("malformed recovery selector accepted: %q", raw)
