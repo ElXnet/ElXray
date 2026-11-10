@@ -10,23 +10,23 @@ import (
 // technical VLESS identity. PREPARED never implies live Xray registration,
 // authenticated device ownership, a free slot or permission to pass payload.
 type TechnicalProfile struct {
-	ProfileID           string `json:"profileId"`
-	OperationID         string `json:"operationId"`
-	NodeID              string `json:"nodeId"`
-	ResourceID          string `json:"resourceId"`
-	ExecutorID          string `json:"executorId"`
-	SubscriptionID      string `json:"subscriptionId"`
-	Email               string `json:"email"`
-	InboundTag          string `json:"inboundTag"`
-	ProfileGeneration   uint64 `json:"profileGeneration"`
-	AuthorityGeneration uint64 `json:"authorityGeneration"`
-	PolicyRevision      uint64 `json:"policyRevision"`
-	NotAfterUnix        int64  `json:"notAfterUnix"`
-	TranscriptSHA256    string `json:"transcriptSha256"`
-	InstallOperationID  string `json:"installOperationId,omitempty"`
+	ProfileID               string `json:"profileId"`
+	OperationID             string `json:"operationId"`
+	NodeID                  string `json:"nodeId"`
+	ResourceID              string `json:"resourceId"`
+	ExecutorID              string `json:"executorId"`
+	SubscriptionID          string `json:"subscriptionId"`
+	Email                   string `json:"email"`
+	InboundTag              string `json:"inboundTag"`
+	ProfileGeneration       uint64 `json:"profileGeneration"`
+	AuthorityGeneration     uint64 `json:"authorityGeneration"`
+	PolicyRevision          uint64 `json:"policyRevision"`
+	NotAfterUnix            int64 `json:"notAfterUnix"`
+	TranscriptSHA256        string `json:"transcriptSha256"`
+	InstallOperationID      string `json:"installOperationId,omitempty"`
 	InstallTranscriptSHA256 string `json:"installTranscriptSha256,omitempty"`
-	Flow                string `json:"flow,omitempty"`
-	Phase               string `json:"phase"`
+	Flow                    string `json:"flow,omitempty"`
+	Phase                   string `json:"phase"`
 }
 
 func validTechnicalProfile(p TechnicalProfile) bool {
