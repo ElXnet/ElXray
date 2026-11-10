@@ -341,6 +341,13 @@ func (j *Journal) HasPending() bool {
 			return true
 		}
 	}
+	for _, profile := range j.img.TechnicalProfiles {
+		if profile.Phase == "INSTALLING" {
+			// Crash after installing the live VLESS user but before the
+			// durable completion cannot be resolved from the journal alone.
+			return true
+		}
+	}
 	return false
 }
 
