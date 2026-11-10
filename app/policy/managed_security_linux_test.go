@@ -109,7 +109,7 @@ func TestManagedRatesRejectUnsignedRaiseBetweenLeaseRenewals(t *testing.T) {
 	mk := func(rev, up, down uint64, disabled bool) subscriptionrate.Update {
 		return subscriptionrate.Update{ID: "lab", ExpectedRevision: rev, Revision: rev + 1, UplinkBps: up, DownlinkBps: down, Disabled: disabled}
 	}
-	if _, err := m.UpdateSubscription(mk(1, 101, 200, false)); !errors.Is(err, subscriptionrate.ErrUnauthorized) {
+	if _, err := m.UpdateSubscription(mk(1, 101, 200, false)); !errors.Is(err, subscriptionrate.ErrLeaseCeiling) {
 		t.Fatalf("missing lease allowed rate increase: %v", err)
 	}
 	now := time.Now().Unix()
