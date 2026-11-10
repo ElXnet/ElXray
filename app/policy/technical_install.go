@@ -130,8 +130,25 @@ func (m *Instance) InstallTechnicalProfile(raw []byte) (elxjournal.TechnicalProf
 		liveTechnicalUserMatches(handler, g.Email, g.ProfileID, g.Flow) {
 		return prepared, nil // exact idempotent retry, live state verified
 	}
-	if prepared.Phase != "PREPARED" || handler.GetUser(nil, g.Email) != nil {
+	if prepared.Phase != "PREPARED" {
 		return elxjournal.TechnicalProfile{}, elxjournal.ErrUncertain
+	}
+	// Detect collisions with preconfigured VLESS identities *before* the
+	// durable INSTALLING intent. Validator.Add still serializes the final
+	// check against racing additions and refuses normalized UUID aliases.
+	normalized := vless.ProcessUUID(xrayuuid.UUID(g.ProfileID))
+	for _, existing := range handler.GetUsers(nil) {
+		account, ok := existing.Account.(*vless.MemoryAccount)
+		if !ok || account == nil || account.ID == nil {
+			return elxjournal.TechnicalProfile{}, elxjournal.ErrCollision
+		}
+		if existing.Email == g.Email ||
+			vless.ProcessUUID(account.ID.UUID()) == normalized {
+			return elxjournal.TechnicalProfile{}, elxjournal.ErrCollision
+		}
+	}
+	if handler.GetUser(nil, g.Email) != nil {
+		return elxjournal.TechnicalProfile{}, elxjournal.ErrCollision
 	}
 	if _, err := m.opJournal.BeginTechnicalInstall(g.ProfileID.String(),
 		g.OperationID.String(), digestHex, g.Flow, g.PolicyRevision, g.AuthorityGeneration); err != nil {
@@ -140,7 +157,7 @@ func (m *Instance) InstallTechnicalProfile(raw []byte) (elxjournal.TechnicalProf
 	// A crash here leaves INSTALLING and the next managed boot refuses to
 	// claim a safe outcome; no fallback to static JSON or unsigned AddUser.
 	user := &protocol.MemoryUser{
-		Email: g.Email,
+		Email:   g.Email,
 		Account: &vless.MemoryAccount{
 			ID: protocol.NewID(xrayuuid.UUID(g.ProfileID)),
 			Flow: g.Flow,
