@@ -227,3 +227,79 @@ func TestTechnicalInstallIntentCrashReplayAndCompletion(t *testing.T) {
 		t.Fatalf("new operation reused installed identity: %v", err)
 	}
 }
+
+func TestTechnicalRetirePersistsTombstoneBeforeLiveRemovalAndSurvivesRestart(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("managed durable journal requires Unix directory fsync")
+	}
+	path := filepath.Join(t.TempDir(), "managed.json")
+	if err := Provision(path, uuid.NewString()); err != nil {
+		t.Fatal(err)
+	}
+	j, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := technicalFixture()
+	if err := j.BootstrapResource(p.ResourceID, p.PolicyRevision, p.AuthorityGeneration); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.RecordTechnicalPrepared(p); err != nil {
+		t.Fatal(err)
+	}
+	installOp := uuid.NewString()
+	h := sha256.Sum256([]byte("v2-install"))
+	if _, err := j.BeginTechnicalInstall(p.ProfileID, installOp, hex.EncodeToString(h[:]), "", p.PolicyRevision, p.AuthorityGeneration); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := j.MarkTechnicalInstalled(p.ProfileID, installOp); err != nil {
+		t.Fatal(err)
+	}
+	retireOp := uuid.NewString()
+	sum := sha256.Sum256([]byte("signed-retire-transcript"))
+	digest := hex.EncodeToString(sum[:])
+	before, err := j.BeginTechnicalRetire(p.ProfileID, retireOp, digest, 2, p.PolicyRevision, p.AuthorityGeneration)
+	if err != nil || before.Phase != "RETIRING" || !j.HasPending() {
+		t.Fatalf("failed to persist fail-closed retire intent: %+v %v", before, err)
+	}
+	if j.DeniedProfiles()[p.ProfileID] != 2 {
+		t.Fatal("retire mutation left UUID without permanent denial")
+	}
+	reopened, err := Open(path)
+	if err != nil || !reopened.HasPending() {
+		t.Fatalf("crashed retire failed to restore in uncertain state: %v", err)
+	}
+	if _, err := reopened.BeginTechnicalRetire(p.ProfileID, retireOp, digest, 2, p.PolicyRevision, p.AuthorityGeneration); !errors.Is(err, ErrUncertain) {
+		t.Fatalf("interrupted retire replay was allowed: %v", err)
+	}
+	if _, err := reopened.MarkTechnicalRetired(p.ProfileID, uuid.NewString()); !errors.Is(err, ErrStale) {
+		t.Fatalf("wrong operation retired a profile: %v", err)
+	}
+	done, err := reopened.MarkTechnicalRetired(p.ProfileID, retireOp)
+	if err != nil || done.Phase != "RETIRED" || reopened.HasPending() {
+		t.Fatalf("verified VLESS absence did not finish durable retire: %+v %v", done, err)
+	}
+	final, err := Open(path)
+	if err != nil || final.HasPending() {
+		t.Fatalf("tombstone+retired profile could not be restored: %v", err)
+	}
+	if stored, ok := final.TechnicalProfile(p.ProfileID); !ok || stored != done {
+		t.Fatalf("retired profile not durable: %+v %v", stored, ok)
+	}
+	if _, err := final.BeginTechnicalRetire(p.ProfileID, retireOp, digest, 2, p.PolicyRevision, p.AuthorityGeneration); err != nil {
+		t.Fatalf("identical signed retire replay failed idempotency: %v", err)
+	}
+	if err := final.RecordTechnicalPrepared(p); !errors.Is(err, ErrStale) {
+		t.Fatalf("retired UUID was resurrected: %v", err)
+	}
+	alias := p
+	alias.ProfileID = uuid.MustParse(p.ProfileID).String()
+	id := uuid.MustParse(alias.ProfileID)
+	id[6] ^= 1
+	alias.ProfileID = id.String()
+	alias.OperationID = uuid.NewString()
+	alias.Email = "alias@lab"
+	if err := final.RecordTechnicalPrepared(alias); !errors.Is(err, ErrStale) {
+		t.Fatalf("retired effective UUID alias reissued: %v", err)
+	}
+}
