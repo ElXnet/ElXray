@@ -63,8 +63,9 @@ func (m *Instance) SignedTechnicalRetireReceipt(raw []byte) (elxprovision.Retire
 		return empty, elxjournal.ErrUncertain
 	}
 	handler, err := m.technicalVLESSHandler(g.InboundTag)
-	if err != nil || technicalVLESSIdentityPresent(handler, g.ProfileID) ||
-		handler.GetUser(nil, g.Email) != nil {
+	// Retiring one UUID does not prohibit a later, independently signed
+	// replacement from reusing the email with a different effective UUID.
+	if err != nil || technicalVLESSIdentityPresent(handler, g.ProfileID) {
 		return empty, elxjournal.ErrUncertain
 	}
 	storeString, good := m.opJournal.StoreIdentity()
