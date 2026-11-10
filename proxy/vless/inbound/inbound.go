@@ -244,6 +244,11 @@ func (h *Handler) Close() error {
 	return errors.Combine(common.Close(h.validator))
 }
 
+// ElXManagedVLESS identifies this concrete trusted VLESS inbound to the
+// proxyman adapter without importing the inbound package from app/policy.
+// It grants no access; signed install and device/owner checks remain separate.
+func (*Handler) ElXManagedVLESS() {}
+
 // AddUser implements proxy.UserManager.AddUser().
 func (h *Handler) AddUser(ctx context.Context, u *protocol.MemoryUser) error {
 	if err := h.validator.Add(u); err != nil {
