@@ -186,25 +186,28 @@ func Open(path string) (*Journal, error) {
 	// Verify the actual VLESS lookup identity, not just the printed UUID.
 	// A copy differing only in bytes 6 and 7 can impersonate another
 	// profile in proxy/vless.MemoryValidator.
-	effectiveIDs := make(map[string]bool)
+	effectiveIDs := make(map[string]string)
 	for profile, gen := range s.DeniedProfiles {
 		if !uuidRE.MatchString(profile) || gen == 0 {
 			return nil, ErrCorrupt
 		}
 		key := vlessLookupKey(profile)
-		if effectiveIDs[key] {
+		if effectiveIDs[key] != "" {
 			return nil, ErrCorrupt
 		}
-		effectiveIDs[key] = true
+		effectiveIDs[key] = profile
 	}
 	for id, p := range s.TechnicalProfiles {
 		key := vlessLookupKey(id)
-		if effectiveIDs[key] {
+		isRetiring := p.Phase == "RETIRING" || p.Phase == "RETIRED"
+		if previous := effectiveIDs[key]; previous != "" &&
+			!(previous == id && isRetiring && s.DeniedProfiles[id] == p.RetireGeneration) {
 			return nil, ErrCorrupt
 		}
-		effectiveIDs[key] = true
+		effectiveIDs[key] = id
 		if id != p.ProfileID || !validTechnicalProfile(p) ||
-			s.DeniedProfiles[id] != 0 || s.Revisions[p.ResourceID] < p.PolicyRevision ||
+			(isRetiring != (s.DeniedProfiles[id] == p.RetireGeneration && p.RetireGeneration != 0)) ||
+			s.Revisions[p.ResourceID] < p.PolicyRevision ||
 			s.Generations[p.ResourceID] < p.AuthorityGeneration {
 			return nil, ErrCorrupt
 		}
@@ -325,6 +328,12 @@ func (j *Journal) RecordDeniedProfile(profile string, generation uint64) error {
 			return ErrCollision
 		}
 	}
+	// A live/prepared technical profile may only acquire a tombstone in the
+	// same durable transaction that records its signed RETIRING operation.
+	// Otherwise a restart would observe a torn profile/denial pair.
+	if _, exists := j.img.TechnicalProfiles[profile]; exists {
+		return ErrUncertain
+	}
 	old := j.img.DeniedProfiles[profile]
 	if old > generation {
 		return ErrStale
@@ -357,9 +366,9 @@ func (j *Journal) HasPending() bool {
 		}
 	}
 	for _, profile := range j.img.TechnicalProfiles {
-		if profile.Phase == "INSTALLING" {
-			// Crash after installing the live VLESS user but before the
-			// durable completion cannot be resolved from the journal alone.
+		if profile.Phase == "INSTALLING" || profile.Phase == "RETIRING" {
+			// Crash during an unknown VLESS data-plane mutation is never
+			// reported safe and must block managed restart.
 			return true
 		}
 	}
