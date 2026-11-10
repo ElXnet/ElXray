@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -32,6 +33,7 @@ type Action string
 
 const (
 	Prepare Action = "prepare"
+	Install Action = "install"
 	Retire  Action = "retire"
 )
 
@@ -49,6 +51,7 @@ type Grant struct {
 	SubscriptionID      string
 	Email               string
 	InboundTag          string
+	Flow                string
 	ProfileGeneration   uint64
 	AuthorityGeneration uint64
 	PolicyRevision      uint64
@@ -58,6 +61,21 @@ type Grant struct {
 }
 
 func (g Grant) Transcript() []byte {
+	// Version 1 remains byte-identical to all deployed PREPARE fixtures.
+	// Version 2 independently signs the VLESS flow used by INSTALL/RETIRE.
+	if g.Version == 2 {
+		return []byte(strings.Join([]string{
+			"elx-profile-grant-v2", string(g.Action), g.OperationID.String(),
+			g.NodeID.String(), g.ExecutorID.String(), g.ResourceID.String(),
+			g.ProfileID.String(), g.SubscriptionID, g.Email, g.InboundTag,
+			"vless", g.Flow,
+			strconv.FormatUint(g.ProfileGeneration, 10),
+			strconv.FormatUint(g.AuthorityGeneration, 10),
+			strconv.FormatUint(g.PolicyRevision, 10),
+			strconv.FormatInt(g.NotBefore, 10),
+			strconv.FormatInt(g.NotAfter, 10),
+		}, "\n"))
+	}
 	return fmt.Appendf(nil, "elx-profile-grant-v1\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%d\n%d\n%d\n%d\n%d",
 		g.Action, g.OperationID, g.NodeID, g.ExecutorID, g.ResourceID,
 		g.ProfileID, g.SubscriptionID, g.Email, g.InboundTag,
@@ -65,7 +83,9 @@ func (g Grant) Transcript() []byte {
 }
 
 func (g Grant) wellFormed() bool {
-	if g.Version != 1 || (g.Action != Prepare && g.Action != Retire) ||
+	if !((g.Version == 1 && (g.Action == Prepare || g.Action == Retire) && g.Flow == "") ||
+		(g.Version == 2 && (g.Action == Install || g.Action == Retire) &&
+			(g.Flow == "" || g.Flow == "xtls-rprx-vision"))) ||
 		g.OperationID == uuid.Nil || g.NodeID == uuid.Nil ||
 		g.ExecutorID == uuid.Nil || g.ResourceID == uuid.Nil || g.ProfileID == uuid.Nil ||
 		g.ProfileGeneration == 0 || g.AuthorityGeneration == 0 || g.PolicyRevision == 0 ||
@@ -145,6 +165,11 @@ func (r *Registry) Stage(g Grant, now time.Time) error {
 	}
 	if err := Verify(g, r.key, r.node, r.executor, r.resource, now); err != nil {
 		return err
+	}
+	// Registry is a preparation projection. An INSTALL instruction must go
+	// through the dedicated durable core mutation path, not Stage().
+	if g.Action == Install {
+		return ErrInvalid
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
