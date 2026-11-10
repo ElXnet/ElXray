@@ -45,6 +45,17 @@ type Instance struct {
 	leaseCancel          context.CancelFunc
 }
 
+// TechnicalVLESSPayloadAuthorized is deliberately false for technical
+// provisioning mode: a Control-signed prepare/install grants no device
+// admission. Only a later authenticated owner/device proof may permit
+// payload. When the opt-in is absent, preserve the Stage-2/standalone path.
+func (m *Instance) TechnicalVLESSPayloadAuthorized(profileID uuid.UUID) bool {
+	if m == nil || profileID == uuid.Nil {
+		return false
+	}
+	return !m.technicalProvisioning
+}
+
 // New creates new Policy manager instance.
 func New(ctx context.Context, config *Config) (*Instance, error) {
 	if config == nil {
