@@ -27,6 +27,9 @@ func TestControlLeaseDenyAndExpiryClosesIdleFlows(t *testing.T) {
 	if got, ok := l.VerifiedLeaseDeadline(); !ok || !got.Equal(deadline) {
 		t.Fatalf("equal expiry changed signed deadline: %v %v", got, ok)
 	}
+	if l.RenewLease(deadline.Add(-time.Millisecond)) {
+		t.Fatal("shorter signed expiry replaced prior monotonic deadline")
+	}
 	var stops atomic.Int32
 	end, err := l.TrackConnection(func() { stops.Add(1) })
 	if err != nil {
