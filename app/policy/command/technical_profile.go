@@ -22,6 +22,7 @@ const technicalServiceName = "elx.core.v1.TechnicalProfile"
 type technicalProfileService interface {
 	prepare(context.Context, *wrapperspb.BytesValue) (*wrapperspb.BytesValue, error)
 	install(context.Context, *wrapperspb.BytesValue) (*wrapperspb.BytesValue, error)
+	installedProof(context.Context, *wrapperspb.BytesValue) (*wrapperspb.BytesValue, error)
 	readback(context.Context, *wrapperspb.StringValue) (*wrapperspb.BytesValue, error)
 }
 
@@ -100,6 +101,35 @@ func (s *technicalProfileServer) install(ctx context.Context,
 	return wrapperspb.Bytes(data), nil
 }
 
+// installedProof never accepts an agent-authored receipt; the running core
+// verifies Control's INSTALL job, live VLESS registration and durable store
+// before signing a node/executor/boot-scoped proof with its own private key.
+func (s *technicalProfileServer) installedProof(ctx context.Context,
+	request *wrapperspb.BytesValue,
+) (*wrapperspb.BytesValue, error) {
+	if err := checkLocalPeer(ctx); err != nil {
+		return nil, err
+	}
+	if request == nil || len(request.Value) == 0 || len(request.Value) > 4096 {
+		return nil, status.Error(codes.InvalidArgument, "missing signed Control installation job")
+	}
+	signer, ok := s.manager.(interface {
+		SignedTechnicalInstallReceipt([]byte) (elxprovision.InstallReceipt, error)
+	})
+	if !ok {
+		return nil, status.Error(codes.FailedPrecondition, "core technical attestation unavailable")
+	}
+	proof, err := signer.SignedTechnicalInstallReceipt(request.Value)
+	if err != nil {
+		return nil, technicalError(err)
+	}
+	data, err := json.Marshal(proof)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "core installed proof encoding failed")
+	}
+	return wrapperspb.Bytes(data), nil
+}
+
 func (s *technicalProfileServer) readback(ctx context.Context,
 	request *wrapperspb.StringValue,
 ) (*wrapperspb.BytesValue, error) {
@@ -155,6 +185,7 @@ func registerTechnicalProfile(server *grpc.Server, manager policy.SubscriptionCo
 		Methods: []grpc.MethodDesc{
 			{MethodName: "Prepare", Handler: technicalHandler("Prepare", (*technicalProfileServer).prepare)},
 			{MethodName: "Install", Handler: technicalHandler("Install", (*technicalProfileServer).install)},
+			{MethodName: "InstalledProof", Handler: technicalHandler("InstalledProof", (*technicalProfileServer).installedProof)},
 			{MethodName: "Readback", Handler: technicalHandler("Readback", (*technicalProfileServer).readback)},
 		},
 	}, &technicalProfileServer{manager: manager})
