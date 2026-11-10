@@ -109,6 +109,15 @@ type VLESSProfileManager interface {
 	DrainVLESSProfile(context.Context, ProfileDrainRequest) ([]byte, error)
 }
 
+// TechnicalProfileAdmission is an optional core-only data-plane gate.
+// Signed technical preparation DOES NOT establish device/owner admission.
+// When stage-4 provisioning is explicitly enabled, all authenticated
+// VLESS UUIDs are denied at this boundary until stage-6 proof is installed.
+// Legacy standalone and stage-2 managed nodes remain unchanged by default.
+type TechnicalProfileAdmission interface {
+	TechnicalVLESSPayloadAuthorized(profileID uuid.UUID) bool
+}
+
 // RateBarrierRequest names one committed rate-grant revision. For positive
 // speed reductions, the core signs only after durable in-place enforcement
 // and quiescence of older dispatcher payload transfers. For full disabling,
