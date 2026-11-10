@@ -95,5 +95,17 @@ func (m *Instance) TechnicalProfileReadback(profileID string) (elxjournal.Techni
 	if !found {
 		return elxjournal.TechnicalProfile{}, errors.New("technical VLESS profile not prepared")
 	}
+	if profile.Phase == "INSTALLED" {
+		// On restart the journal alone cannot prove the user has actually
+		// been registered in this running VLESS inbound incarnation.
+		handler, err := m.technicalVLESSHandler(profile.InboundTag)
+		if err != nil {
+			return elxjournal.TechnicalProfile{}, elxjournal.ErrUncertain
+		}
+		id := uuid.MustParse(profile.ProfileID)
+		if !liveTechnicalUserMatches(handler, profile.Email, id, profile.Flow) {
+			return elxjournal.TechnicalProfile{}, elxjournal.ErrUncertain
+		}
+	}
 	return profile, nil
 }
