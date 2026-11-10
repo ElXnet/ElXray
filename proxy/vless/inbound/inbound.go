@@ -15,6 +15,7 @@ import (
 	"github.com/xtls/xray-core/app/reverse"
 	"github.com/xtls/xray-core/common"
 	"github.com/xtls/xray-core/common/buf"
+	"github.com/xtls/xray-core/common/elxjournal"
 	"github.com/xtls/xray-core/common/errors"
 	"github.com/xtls/xray-core/common/log"
 	"github.com/xtls/xray-core/common/mux"
@@ -25,6 +26,7 @@ import (
 	"github.com/xtls/xray-core/common/session"
 	"github.com/xtls/xray-core/common/signal"
 	"github.com/xtls/xray-core/common/task"
+	xrayuuid "github.com/xtls/xray-core/common/uuid"
 	"github.com/xtls/xray-core/core"
 	"github.com/xtls/xray-core/features"
 	"github.com/xtls/xray-core/features/dns"
@@ -173,8 +175,42 @@ func New(ctx context.Context, config *Config, dc dns.Client, validator vless.Val
 		}
 	}
 
-	// Register configured VLESS UUIDs before accepting flows. A durable
-	// denial is never cleared by re-registering a profile after restart.
+	// Managed technical users are durably installed, but the VLESS validator
+	// itself lives only in memory. Rehydrate exact INSTALLED identities before
+	// the inbound accepts traffic. A journal/core-inbound identity mismatch,
+	// static JSON duplicate or changed effective UUID fails the whole boot.
+	// Rehydration is never equivalent to owner/device admission.
+	if restorer, ok := handler.policyManager.(interface {
+		RecoveredTechnicalProfiles(string) ([]elxjournal.TechnicalProfile, error)
+	}); ok {
+		tag := ""
+		if inbound := session.InboundFromContext(ctx); inbound != nil {
+			tag = inbound.Tag
+		}
+		profiles, err := restorer.RecoveredTechnicalProfiles(tag)
+		if err != nil {
+			return nil, errors.New("failed closed while restoring managed VLESS technical profiles").Base(err)
+		}
+		for _, p := range profiles {
+			id, parseErr := uuid.Parse(p.ProfileID)
+			if parseErr != nil || id == uuid.Nil || handler.validator.Get(xrayuuid.UUID(id)) != nil ||
+				handler.validator.GetByEmail(p.Email) != nil {
+				return nil, errors.New("managed technical VLESS user conflicts with static configuration")
+			}
+			user := &protocol.MemoryUser{
+				Email: p.Email,
+				Account: &vless.MemoryAccount{
+					ID: protocol.NewID(xrayuuid.UUID(id)),
+					Flow: p.Flow,
+				},
+			}
+			if err := handler.validator.Add(user); err != nil {
+				return nil, errors.New("managed VLESS identity recovery collision").Base(err)
+			}
+		}
+	}
+	// Register configured and rehydrated UUIDs before accepting flows.
+	// A durable denial is never cleared by re-registering a profile.
 	if tracker, ok := handler.policyManager.(policy.VLESSProfileManager); ok {
 		for _, user := range handler.validator.GetAll() {
 			if account, ok := user.Account.(*vless.MemoryAccount); ok {
