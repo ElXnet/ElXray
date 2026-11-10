@@ -3,6 +3,7 @@ package command
 import (
 	"context"
 	"testing"
+	"strings"
 
 	"github.com/xtls/xray-core/common/elxjournal"
 	"github.com/xtls/xray-core/common/elxprovision"
@@ -30,6 +31,12 @@ func TestTechnicalProfileRPCRequiresAuthenticatedLocalPeer(t *testing.T) {
 	if _, err := s.retiredProof(ctx, wrapperspb.Bytes([]byte("{}"))); status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("remote signed VLESS retirement proof must require Unix peercred: %v", err)
 	}
+	if _, err := s.recoverInstalledProof(ctx, wrapperspb.String("11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222")); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("remote installed recovery proof must require Unix peercred: %v", err)
+	}
+	if _, err := s.recoverRetiredProof(ctx, wrapperspb.String("11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222")); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("remote retired recovery proof must require Unix peercred: %v", err)
+	}
 	if _, err := s.readback(ctx, wrapperspb.String("00000000-0000-0000-0000-000000000001")); status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("remote profile readback must require Unix peercred: %v", err)
 	}
@@ -49,6 +56,24 @@ func TestTechnicalProfileErrorsCannotMasqueradeAsAppliedReceipt(t *testing.T) {
 	} {
 		if got := status.Code(technicalError(test.err)); got != test.code {
 			t.Fatalf("technical profile failure mapped to %s instead of %s", got, test.code)
+		}
+	}
+}
+
+func TestTechnicalRecoverySelectorRejectsAmbiguousAndNonCanonicalOperations(t *testing.T) {
+	id := "11111111-1111-4111-8111-111111111111"
+	op := "22222222-2222-4222-8222-222222222222"
+	if gotID, gotOp, err := technicalRecoveryIDs(id+"/"+op); err != nil || gotID != id || gotOp != op {
+		t.Fatalf("canonical read-only recovery IDs rejected: %q %q %v", gotID, gotOp, err)
+	}
+	for _, raw := range []string{
+		"", id, id+"/"+op+"/extra", id+"/"+id+" ",
+		"00000000-0000-0000-0000-000000000000/"+op,
+		id+"/00000000-0000-0000-0000-000000000000",
+		id+"/"+strings.ToUpper(op),
+	} {
+		if _, _, err := technicalRecoveryIDs(raw); err == nil {
+			t.Fatalf("malformed recovery selector accepted: %q", raw)
 		}
 	}
 }
