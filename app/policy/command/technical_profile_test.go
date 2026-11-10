@@ -15,19 +15,17 @@ func TestTechnicalProfileRPCRequiresAuthenticatedLocalPeer(t *testing.T) {
 	t.Setenv("ELXRAY_MODE", "managed")
 	s := &technicalProfileServer{}
 	ctx := context.Background()
-	if _, err := s.prepare(ctx, wrapperspb.Bytes([]byte("{}")));
-		status.Code(err) != codes.PermissionDenied {
+	if _, err := s.prepare(ctx, wrapperspb.Bytes([]byte("{}"))); status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("unsigned remote profile preparation must fail before parsing: %v", err)
 	}
-	if _, err := s.readback(ctx, wrapperspb.String("00000000-0000-0000-0000-000000000001"));
-		status.Code(err) != codes.PermissionDenied {
+	if _, err := s.readback(ctx, wrapperspb.String("00000000-0000-0000-0000-000000000001")); status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("remote profile readback must require Unix peercred: %v", err)
 	}
 }
 
 func TestTechnicalProfileErrorsCannotMasqueradeAsAppliedReceipt(t *testing.T) {
 	for _, test := range []struct {
-		err error
+		err  error
 		code codes.Code
 	}{
 		{elxprovision.ErrInvalid, codes.InvalidArgument},
