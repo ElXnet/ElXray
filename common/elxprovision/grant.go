@@ -16,43 +16,45 @@ import (
 )
 
 var (
-	ErrInvalid = errors.New("invalid managed profile grant")
+	ErrInvalid      = errors.New("invalid managed profile grant")
 	ErrUnauthorized = errors.New("managed profile grant signature or scope invalid")
-	ErrStale = errors.New("stale managed profile generation")
-	ErrCollision = errors.New("managed profile operation ID collision")
-	ErrNotPrepared = errors.New("managed profile is not prepared")
+	ErrStale        = errors.New("stale managed profile generation")
+	ErrCollision    = errors.New("managed profile operation ID collision")
+	ErrNotPrepared  = errors.New("managed profile is not prepared")
 )
 
-var token = regexp.MustCompile(`^[A-Za-z0-9_.@+:-]{1,255}$`)
-var tag = regexp.MustCompile(`^[A-Za-z0-9_.:-]{1,128}$`)
+var (
+	token = regexp.MustCompile(`^[A-Za-z0-9_.@+:-]{1,255}$`)
+	tag   = regexp.MustCompile(`^[A-Za-z0-9_.:-]{1,128}$`)
+)
 
 type Action string
 
 const (
 	Prepare Action = "prepare"
-	Retire Action = "retire"
+	Retire  Action = "retire"
 )
 
 // Grant binds an intended technical profile to a specific Control resource,
 // executor, entitlement subscription and inbound. An operator may sign it
 // only after recording the reservation in Control's authoritative store.
 type Grant struct {
-	Version uint32
-	Action Action
-	OperationID uuid.UUID
-	NodeID uuid.UUID
-	ExecutorID uuid.UUID
-	ResourceID uuid.UUID
-	ProfileID uuid.UUID
-	SubscriptionID string
-	Email string
-	InboundTag string
-	ProfileGeneration uint64
+	Version             uint32
+	Action              Action
+	OperationID         uuid.UUID
+	NodeID              uuid.UUID
+	ExecutorID          uuid.UUID
+	ResourceID          uuid.UUID
+	ProfileID           uuid.UUID
+	SubscriptionID      string
+	Email               string
+	InboundTag          string
+	ProfileGeneration   uint64
 	AuthorityGeneration uint64
-	PolicyRevision uint64
-	NotBefore int64
-	NotAfter int64
-	Signature []byte
+	PolicyRevision      uint64
+	NotBefore           int64
+	NotAfter            int64
+	Signature           []byte
 }
 
 func (g Grant) Transcript() []byte {
@@ -110,32 +112,38 @@ type Entry struct {
 // In particular Installed is not equivalent to ADMITTED: device admission
 // must be separately proved at the actual VPN data path.
 type Registry struct {
-	mu sync.RWMutex
-	key ed25519.PublicKey
-	node uuid.UUID
-	executor uuid.UUID
-	resource uuid.UUID
-	byProfile map[uuid.UUID]Entry
+	mu          sync.RWMutex
+	key         ed25519.PublicKey
+	node        uuid.UUID
+	executor    uuid.UUID
+	resource    uuid.UUID
+	byProfile   map[uuid.UUID]Entry
 	byOperation map[uuid.UUID]uuid.UUID
 }
 
 // The trusted authority context is injected from protected core bootstrap,
 // never from the incoming client/operation. Invalid scope cannot be created.
-func New(key ed25519.PublicKey, node, executor, resource uuid.UUID) (*Registry,error) {
-	if len(key)!=ed25519.PublicKeySize||node==uuid.Nil||executor==uuid.Nil||resource==uuid.Nil{
-		return nil,ErrInvalid
+func New(key ed25519.PublicKey, node, executor, resource uuid.UUID) (*Registry, error) {
+	if len(key) != ed25519.PublicKeySize || node == uuid.Nil || executor == uuid.Nil || resource == uuid.Nil {
+		return nil, ErrInvalid
 	}
-	return &Registry{key:append(ed25519.PublicKey(nil),key...),
-		node:node,executor:executor,resource:resource,
-		byProfile:make(map[uuid.UUID]Entry),byOperation:make(map[uuid.UUID]uuid.UUID)},nil
+	return &Registry{
+		key:  append(ed25519.PublicKey(nil), key...),
+		node: node, executor: executor, resource: resource,
+		byProfile: make(map[uuid.UUID]Entry), byOperation: make(map[uuid.UUID]uuid.UUID),
+	}, nil
 }
 
 // Stage verifies the exact Ed25519 grant before entering the local projection.
 // A prior journal INTENT and verified Control resource allocation are still
 // required at the calling layer; this projection alone creates no entitlement.
 func (r *Registry) Stage(g Grant, now time.Time) error {
-	if r==nil{return ErrUnauthorized}
-	if err:=Verify(g,r.key,r.node,r.executor,r.resource,now);err!=nil{return err}
+	if r == nil {
+		return ErrUnauthorized
+	}
+	if err := Verify(g, r.key, r.node, r.executor, r.resource, now); err != nil {
+		return err
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if prior, exists := r.byOperation[g.OperationID]; exists {
@@ -160,7 +168,7 @@ func (r *Registry) Stage(g Grant, now time.Time) error {
 	if g.Action == Retire {
 		phase = Retired
 	}
-	r.byProfile[g.ProfileID] = Entry{Grant:g, Phase:phase}
+	r.byProfile[g.ProfileID] = Entry{Grant: g, Phase: phase}
 	r.byOperation[g.OperationID] = g.ProfileID
 	return nil
 }
@@ -177,13 +185,15 @@ func (r *Registry) MarkInstalled(profile, operation uuid.UUID) error {
 	return nil
 }
 
-func (r *Registry) Get(profile uuid.UUID) (Entry,bool) {
+func (r *Registry) Get(profile uuid.UUID) (Entry, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	e,ok := r.byProfile[profile]
-	if !ok{return Entry{},false}
-	e.Grant.Signature = append([]byte(nil),e.Grant.Signature...)
-	return e,true
+	e, ok := r.byProfile[profile]
+	if !ok {
+		return Entry{}, false
+	}
+	e.Grant.Signature = append([]byte(nil), e.Grant.Signature...)
+	return e, true
 }
 
 // Not an admission decision: signed preparation alone cannot create a
