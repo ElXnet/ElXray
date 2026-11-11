@@ -322,3 +322,23 @@ operator isolation, not a successful repair. See
 `docs/elx/stage4-operator-recovery.md`. Independently signed offline
 operator-authorized quarantine/abort closure of the Control INTENT remains
 P0; do not merge or deploy before that protocol is designed and proven.
+
+
+## 2026-11-11: managed VLESS inbound bootstrap UUID fence (pending CI)
+
+The core now validates every statically configured VLESS user at inbound
+construction against the *whole* durable technical profile ledger
+(PREPARED, INSTALLED, RETIRED) and the permanent denied-profile tombstones.
+Matching effective VLESS UUIDs—including normalization aliases in another
+inbound—fail the core/inbound bootstrap **before listeners start**. This
+prevents a static configuration rollback or new inbound construction from
+silently shadowing an existing Control-issued technical identity.
+The guard does not change non-opted-in / standalone behavior and never
+grants a technical UUID owner/device admission. Installed/retired live
+readback now acquires the subscription mutation lock and verifies the
+complete VLESS inbound scope rather than only the target inbound.
+
+Large decommission/rebootstrap behavior remains a cross-service architectural
+requirement; see [stage4-architecture-handoff.md](stage4-architecture-handoff.md).
+Do not promote this note or Stage 4 to DONE before exact-head CI and all
+remaining release gates pass.
