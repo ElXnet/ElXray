@@ -35,3 +35,8 @@ The inspector acquires the exact managed policy state's exclusive `.lock`
 using nonblocking Unix flock. It refuses a missing lock, an active core, or
 an unsupported platform rather than inspecting a concurrently mutating
 journal. It closes the descriptor without modifying policy, journal or anchor.
+
+The inspector binds `-operation` to the **current** durable phase:
+PREPARED requires the original PREPARE ID, INSTALLING/INSTALLED requires
+INSTALL ID, and RETIRING/RETIRED requires RETIRE ID. A previous valid
+operation ID is never sufficient evidence for the current uncertain state.

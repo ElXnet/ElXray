@@ -92,6 +92,11 @@ func TestOfflineTechnicalInspectionNeverMutatesUncertainJournal(t *testing.T) {
 		!result.RequiresIsolation || result.MutationAllowed {
 		t.Fatalf("incomplete signed INSTALL was not quarantined: %+v", result)
 	}
+	wrongPhaseOperation := append([]string(nil), args...)
+	wrongPhaseOperation[9] = prepare
+	if err := inspect(wrongPhaseOperation, &bytes.Buffer{}); err == nil {
+		t.Fatal("PREPARE identity impersonated an interrupted INSTALL")
+	}
 	if err := inspect(append(args, "-require-terminal"), &bytes.Buffer{}); err == nil {
 		t.Fatal("operator terminal-state gate admitted uncertain INSTALL")
 	}

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/google/uuid"
 	"github.com/xtls/xray-core/common/elxjournal"
@@ -42,7 +43,7 @@ func inspect(args []string, output io.Writer) error {
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if flags.NArg() != 0 || *path == "" || *statePath == "" || !validUUID(*store) ||
+	if flags.NArg() != 0 || !filepath.IsAbs(*path) || *statePath == "" || !validUUID(*store) ||
 		!validUUID(*profile) || !validUUID(*operation) || output == nil {
 		return errors.New("absolute journal and exact store/profile/operation UUIDs required")
 	}
@@ -64,10 +65,24 @@ func inspect(args []string, output io.Writer) error {
 		return errors.New("independent Control store witness mismatch")
 	}
 	p, ok := j.TechnicalProfile(*profile)
-	if !ok || (p.OperationID != *operation &&
-		p.InstallOperationID != *operation &&
-		p.RetireOperationID != *operation) {
-		return errors.New("profile/operation not bound to this immutable core journal")
+	if !ok {
+		return errors.New("profile not bound to this immutable core journal")
+	}
+	// A PREPARE ID must not masquerade as evidence for an interrupted
+	// INSTALL; likewise the old INSTALL ID cannot certify a RETIRE.
+	var phaseOperation string
+	switch p.Phase {
+	case "PREPARED":
+		phaseOperation = p.OperationID
+	case "INSTALLING", "INSTALLED":
+		phaseOperation = p.InstallOperationID
+	case "RETIRING", "RETIRED":
+		phaseOperation = p.RetireOperationID
+	default:
+		return errors.New("invalid technical journal phase")
+	}
+	if phaseOperation != *operation {
+		return errors.New("operation does not match the active durable phase")
 	}
 	uncertain := p.Phase == "INSTALLING" || p.Phase == "RETIRING"
 	if j.HasPending() && !uncertain {
