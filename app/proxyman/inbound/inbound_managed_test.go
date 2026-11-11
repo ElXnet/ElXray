@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/xtls/xray-core/common/serial"
 	featureinbound "github.com/xtls/xray-core/features/inbound"
@@ -59,5 +60,44 @@ func TestManagedHotReloadWithoutPolicyGuardFailsClosed(t *testing.T) {
 	}
 	if len(manager.ListHandlers(context.Background())) != 0 {
 		t.Fatal("unauthorized handler entered the managed inbound registry")
+	}
+}
+
+
+type stage4LockProbe struct {
+	*stage4FakeHandler
+	manager *Manager
+}
+
+func (h *stage4LockProbe) Close() error {
+	// A real inbound teardown can call policy/manager code. Closing it while
+	// holding Manager.access would block this exact callback indefinitely.
+	h.manager.ListHandlers(context.Background())
+	h.closed = true
+	return nil
+}
+
+func TestRemovedInboundClosesOutsideRegistryLock(t *testing.T) {
+	t.Setenv("ELXRAY_TECHNICAL_PROVISIONING", "")
+	manager := &Manager{taggedHandlers: make(map[string]featureinbound.Handler)}
+	probe := &stage4LockProbe{
+		stage4FakeHandler: &stage4FakeHandler{tag: "close-probe"},
+		manager: manager,
+	}
+	if err := manager.AddHandler(context.Background(), probe); err != nil {
+		t.Fatal(err)
+	}
+	completed := make(chan error, 1)
+	go func() { completed <- manager.RemoveHandler(context.Background(), probe.tag) }()
+	select {
+	case err := <-completed:
+		if err != nil || !probe.closed {
+			t.Fatalf("unpublished handler was not safely closed: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("handler teardown deadlocked while holding inbound registry lock")
+	}
+	if len(manager.ListHandlers(context.Background())) != 0 {
+		t.Fatal("removed handler still visible to signed operations")
 	}
 }

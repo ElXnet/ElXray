@@ -365,3 +365,11 @@ INSTALLED identity, standalone compatibility, and failed listener startup.
 These changes are deliberately core-only and DO NOT create device admission
 or a new ElX-control endpoint. They require exact-head CI and a dedicated
 live hot-reload race E2E before Stage 4 is DONE.
+
+The candidate runtime handler is also compared under the inbound registry
+mutex to **all currently published VLESS validators**, including unrelated
+static users. Two hot-reloaded inbounds with equivalent normalized UUIDs
+cannot both be committed. Removal unpublishes the handler under the
+ordered locks, then releases those locks BEFORE closing its sockets or
+waiting on connection teardown. A regression test exercises a Close()
+callback that re-enters the manager: it must not deadlock.
