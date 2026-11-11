@@ -175,6 +175,19 @@ func New(ctx context.Context, config *Config, dc dns.Client, validator vless.Val
 		}
 	}
 
+	// This check runs for EVERY inbound, before any listener starts.
+	// A static UUID (including a VLESS-normalized alias) must never shadow
+	// a durable PREPARED/INSTALLED/RETIRED technical identity or tombstone,
+	// even if the static account lives under a different inbound tag.
+	// It also protects inbound reconstruction outside the legacy API.
+	if guard, ok := handler.policyManager.(interface {
+		ValidateTechnicalVLESSBootstrap([]*protocol.MemoryUser) error
+	}); ok {
+		if err := guard.ValidateTechnicalVLESSBootstrap(validator.GetAll()); err != nil {
+			return nil, errors.New("managed VLESS static UUID shadows durable technical authority").Base(err)
+		}
+	}
+
 	// Managed technical users are durably installed, but the VLESS validator
 	// itself lives only in memory. Rehydrate exact INSTALLED identities before
 	// the inbound accepts traffic. A journal/core-inbound identity mismatch,

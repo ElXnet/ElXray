@@ -106,6 +106,14 @@ func (m *Instance) TechnicalProfileReadback(profileID string) (elxjournal.Techni
 		if !liveTechnicalUserMatches(handler, profile.Email, id, profile.Flow) {
 			return elxjournal.TechnicalProfile{}, elxjournal.ErrUncertain
 		}
+		if err := m.verifyTechnicalVLESSScope(profile.InboundTag, profile.Email, id, true); err != nil {
+			return elxjournal.TechnicalProfile{}, elxjournal.ErrUncertain
+		}
+	} else if profile.Phase == "RETIRED" {
+		id := uuid.MustParse(profile.ProfileID)
+		if err := m.verifyTechnicalVLESSScope(profile.InboundTag, profile.Email, id, false); err != nil {
+			return elxjournal.TechnicalProfile{}, elxjournal.ErrUncertain
+		}
 	}
 	return profile, nil
 }
