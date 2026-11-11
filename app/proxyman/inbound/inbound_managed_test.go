@@ -6,7 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xtls/xray-core/app/proxyman"
 	"github.com/xtls/xray-core/common/serial"
+	"github.com/xtls/xray-core/core"
 	featureinbound "github.com/xtls/xray-core/features/inbound"
 )
 
@@ -99,5 +101,21 @@ func TestRemovedInboundClosesOutsideRegistryLock(t *testing.T) {
 	}
 	if len(manager.ListHandlers(context.Background())) != 0 {
 		t.Fatal("removed handler still visible to signed operations")
+	}
+}
+
+func TestCoreInboundManagerBindsOwnerEvenWithoutRuntimeCallerContext(t *testing.T) {
+	t.Setenv("ELXRAY_TECHNICAL_PROVISIONING", "")
+	server, err := core.New(&core.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager, err := core.CreateObject(server, &proxyman.InboundConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := manager.(*Manager)
+	if !ok || got.owner != server {
+		t.Fatal("inbound manager lost core identity during construction")
 	}
 }

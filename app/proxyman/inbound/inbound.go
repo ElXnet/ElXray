@@ -19,6 +19,7 @@ import (
 
 // Manager manages all inbound handlers.
 type Manager struct {
+	owner            *core.Instance
 	access           sync.RWMutex
 	untaggedHandlers []inbound.Handler
 	taggedHandlers   map[string]inbound.Handler
@@ -28,6 +29,7 @@ type Manager struct {
 // New returns a new Manager for inbound handlers.
 func New(ctx context.Context, config *proxyman.InboundConfig) (*Manager, error) {
 	m := &Manager{
+		owner:          core.FromContext(ctx),
 		taggedHandlers: make(map[string]inbound.Handler),
 	}
 	return m, nil
@@ -82,6 +84,12 @@ func (m *Manager) AddHandler(ctx context.Context, handler inbound.Handler) error
 		return nil
 	}
 	server := core.FromContext(ctx)
+	if m.owner != nil {
+		if server != nil && server != m.owner {
+			return errors.New("managed inbound context refers to another core")
+		}
+		server = m.owner
+	}
 	if server != nil {
 		if pm, ok := server.GetFeature(featurepolicy.ManagerType()).(interface {
 			WithTechnicalInboundRegistration(string, bool, func() []*protocol.MemoryUser, func() error) error
@@ -147,6 +155,12 @@ func (m *Manager) RemoveHandler(ctx context.Context, tag string) error {
 	}
 	apply := func() error {
 		server := core.FromContext(ctx)
+		if m.owner != nil {
+			if server != nil && server != m.owner {
+				return errors.New("managed inbound removal refers to another core")
+			}
+			server = m.owner
+		}
 		if server != nil {
 			if pm, ok := server.GetFeature(featurepolicy.ManagerType()).(interface {
 				WithTechnicalInboundRemoval(string, func() error) error
