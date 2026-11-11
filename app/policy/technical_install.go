@@ -137,10 +137,19 @@ func (m *Instance) InstallTechnicalProfile(raw []byte) (elxjournal.TechnicalProf
 		prepared.InstallOperationID == g.OperationID.String() &&
 		prepared.InstallTranscriptSHA256 == digestHex &&
 		liveTechnicalUserMatches(handler, g.Email, g.ProfileID, g.Flow) {
-		return prepared, nil // exact idempotent retry, live state verified
+		if err := m.verifyTechnicalVLESSScope(g.InboundTag, g.Email, g.ProfileID, true); err != nil {
+			return elxjournal.TechnicalProfile{}, err
+		}
+		return prepared, nil // exact idempotent retry, all inbounds verified
 	}
 	if prepared.Phase != "PREPARED" {
 		return elxjournal.TechnicalProfile{}, elxjournal.ErrUncertain
+	}
+	// Reject aliases and shadow users in ALL live VLESS inbound validators,
+	// not just the target tag. This check precedes the fsynced INSTALLING
+	// state; a collision never creates a partially installed technical user.
+	if err := m.verifyTechnicalVLESSScope(g.InboundTag, g.Email, g.ProfileID, false); err != nil {
+		return elxjournal.TechnicalProfile{}, err
 	}
 	// Detect collisions with preconfigured VLESS identities *before* the
 	// durable INSTALLING intent. Validator.Add still serializes the final
@@ -177,6 +186,13 @@ func (m *Instance) InstallTechnicalProfile(raw []byte) (elxjournal.TechnicalProf
 		return elxjournal.TechnicalProfile{}, elxjournal.ErrUncertain
 	}
 	if !liveTechnicalUserMatches(handler, g.Email, g.ProfileID, g.Flow) {
+		m.store.failed = true
+		_ = handler.RemoveUser(m.runtimeContext, g.Email)
+		return elxjournal.TechnicalProfile{}, elxjournal.ErrUncertain
+	}
+	// A concurrent inbound reload must not make a shadow identity legitimate.
+	// Any conflict leaves INSTALLING quarantined rather than marking success.
+	if err := m.verifyTechnicalVLESSScope(g.InboundTag, g.Email, g.ProfileID, true); err != nil {
 		m.store.failed = true
 		_ = handler.RemoveUser(m.runtimeContext, g.Email)
 		return elxjournal.TechnicalProfile{}, elxjournal.ErrUncertain

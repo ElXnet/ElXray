@@ -77,7 +77,8 @@ func (m *Instance) RetireTechnicalProfile(raw []byte) (elxjournal.TechnicalProfi
 			m.opJournal.DeniedProfiles()[grant.ProfileID.String()] < grant.ProfileGeneration {
 			return empty, elxjournal.ErrCollision
 		}
-		if technicalVLESSIdentityPresent(handler, grant.ProfileID) {
+		if technicalVLESSIdentityPresent(handler, grant.ProfileID) ||
+			m.verifyTechnicalVLESSScope(grant.InboundTag, grant.Email, grant.ProfileID, false) != nil {
 			return empty, elxjournal.ErrUncertain
 		}
 		return previous, nil
@@ -147,7 +148,10 @@ func (m *Instance) RetireTechnicalProfile(raw []byte) (elxjournal.TechnicalProfi
 		}
 	}
 	if technicalVLESSIdentityPresent(handler, grant.ProfileID) ||
-		handler.GetUser(nil, grant.Email) != nil {
+		handler.GetUser(nil, grant.Email) != nil ||
+		m.verifyTechnicalVLESSScope(grant.InboundTag, grant.Email, grant.ProfileID, false) != nil {
+		// The permanent tombstone already exists. A shadow inbound or
+		// concurrent reload stays quarantined; never sign RETIRED.
 		m.store.failed = true
 		return empty, elxjournal.ErrUncertain
 	}
