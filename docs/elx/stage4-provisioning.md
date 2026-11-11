@@ -342,3 +342,26 @@ Large decommission/rebootstrap behavior remains a cross-service architectural
 requirement; see [stage4-architecture-handoff.md](stage4-architecture-handoff.md).
 Do not promote this note or Stage 4 to DONE before exact-head CI and all
 remaining release gates pass.
+
+## 2026-11-12: hot reload / inbound publication serialization (Draft)
+
+ElXray now revalidates the candidate handler's actual VLESS validator users
+while holding the SAME `subscriptionMu` used by signed
+PREPARE/INSTALL/RETIRE. The mutex remains held through the inbound-manager
+registration and listener start; the lock order is always
+`subscriptionMu → inbound.Manager.access`. This prevents constructing an
+inbound before Control's UUID reservation and publishing it afterwards.
+
+Only an exact journal-INSTALLED identity on its bound inbound tag, with the
+matching original UUID, email, and flow, can be rehydrated. A PREPARED UUID,
+RETIRED tombstone, normalized UUID alias, wrong tag or a non-VLESS replacement
+must fail closed. Removal of a tag still containing a PREPARED or INSTALLED
+Control-owned profile is rejected. Standalone/non-opted-in handler lifecycle
+preserves upstream behavior. A failed handler Start is removed from the
+manager rather than leaving a discoverable partial hot-reload.
+
+Tests cover serialized commits, concurrent stale reload, missing/rebound
+INSTALLED identity, standalone compatibility, and failed listener startup.
+These changes are deliberately core-only and DO NOT create device admission
+or a new ElX-control endpoint. They require exact-head CI and a dedicated
+live hot-reload race E2E before Stage 4 is DONE.
