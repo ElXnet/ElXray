@@ -121,30 +121,44 @@ func (m *Manager) RemoveHandler(ctx context.Context, tag string) error {
 	if tag == "" {
 		return common.ErrNoClue
 	}
+	var removed inbound.Handler
 	remove := func() error {
 		m.access.Lock()
 		defer m.access.Unlock()
-		if handler, found := m.taggedHandlers[tag]; found {
-			if err := handler.Close(); err != nil {
-				errors.LogWarningInner(ctx, err, "failed to close handler ", tag)
+		handler, found := m.taggedHandlers[tag]
+		if !found {
+			return common.ErrNoClue
+		}
+		// Unpublish under subscriptionMu -> access ordering, then close
+		// outside BOTH locks. A network flow's teardown may itself need
+		// subscription policy locks, as it does in signed RETIRE.
+		delete(m.taggedHandlers, tag)
+		removed = handler
+		return nil
+	}
+	apply := func() error {
+		server := core.FromContext(ctx)
+		if server != nil {
+			if pm, ok := server.GetFeature(featurepolicy.ManagerType()).(interface {
+				WithTechnicalInboundRemoval(string, func() error) error
+			}); ok {
+				return pm.WithTechnicalInboundRemoval(tag, remove)
 			}
-			delete(m.taggedHandlers, tag)
-			return nil
 		}
-		return common.ErrNoClue
+		if os.Getenv("ELXRAY_TECHNICAL_PROVISIONING") == "1" {
+			return errors.New("managed technical inbound removal guard unavailable")
+		}
+		return remove()
 	}
-	server := core.FromContext(ctx)
-	if server != nil {
-		if pm, ok := server.GetFeature(featurepolicy.ManagerType()).(interface {
-			WithTechnicalInboundRemoval(string, func() error) error
-		}); ok {
-			return pm.WithTechnicalInboundRemoval(tag, remove)
+	if err := apply(); err != nil {
+		return err
+	}
+	if removed != nil {
+		if err := removed.Close(); err != nil {
+			errors.LogWarningInner(ctx, err, "failed to close handler ", tag)
 		}
 	}
-	if os.Getenv("ELXRAY_TECHNICAL_PROVISIONING") == "1" {
-		return errors.New("managed technical inbound removal guard unavailable")
-	}
-	return remove()
+	return nil
 }
 
 // ListHandlers implements inbound.Manager.

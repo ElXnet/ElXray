@@ -92,8 +92,7 @@ func TestManagedInboundRegistrationRechecksDurableUUIDInsideCommitLock(t *testin
 	if err != nil || runs != 1 {
 		t.Fatalf("unrelated inbound registration failed: %v; callbacks %d", err, runs)
 	}
-	if err := manager.WithTechnicalInboundRemoval("vless-primary", register);
-		!errors.Is(err, elxjournal.ErrUncertain) {
+	if err := manager.WithTechnicalInboundRemoval("vless-primary", register); !errors.Is(err, elxjournal.ErrUncertain) {
 		t.Fatalf("PREPARED technical inbound was removed before Control authority ended: %v", err)
 	}
 }
@@ -137,8 +136,7 @@ func TestManagedInstalledInboundMustMatchExactTagAndAccount(t *testing.T) {
 	if count != 1 {
 		t.Fatal("invalid inbound registration executed its commit callback")
 	}
-	if err := manager.WithTechnicalInboundRemoval(p.InboundTag, register);
-		!errors.Is(err, elxjournal.ErrUncertain) {
+	if err := manager.WithTechnicalInboundRemoval(p.InboundTag, register); !errors.Is(err, elxjournal.ErrUncertain) {
 		t.Fatalf("hot reload removed a Control-owned installed profile: %v", err)
 	}
 	if count != 1 {

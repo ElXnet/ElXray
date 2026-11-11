@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/xtls/xray-core/common/serial"
+	featureinbound "github.com/xtls/xray-core/features/inbound"
 )
 
 type stage4FakeHandler struct {
@@ -29,7 +30,7 @@ func (*stage4FakeHandler) ProxySettings() *serial.TypedMessage { return nil }
 
 func TestHotReloadFailedInboundStartIsNeverPublished(t *testing.T) {
 	t.Setenv("ELXRAY_TECHNICAL_PROVISIONING", "")
-	manager := &Manager{taggedHandlers: make(map[string]Handler), running: true}
+	manager := &Manager{taggedHandlers: make(map[string]featureinbound.Handler), running: true}
 	broken := &stage4FakeHandler{tag: "reloaded", startErr: errors.New("test start failure")}
 	if err := manager.AddHandler(context.Background(), broken); err == nil {
 		t.Fatal("failed hot reload succeeded")
@@ -51,7 +52,7 @@ func TestHotReloadFailedInboundStartIsNeverPublished(t *testing.T) {
 
 func TestManagedHotReloadWithoutPolicyGuardFailsClosed(t *testing.T) {
 	t.Setenv("ELXRAY_TECHNICAL_PROVISIONING", "1")
-	manager := &Manager{taggedHandlers: make(map[string]Handler)}
+	manager := &Manager{taggedHandlers: make(map[string]featureinbound.Handler)}
 	handler := &stage4FakeHandler{tag: "bad-managed-inbound"}
 	if err := manager.AddHandler(context.Background(), handler); err == nil {
 		t.Fatal("managed inbound reload without policy authority was accepted")
