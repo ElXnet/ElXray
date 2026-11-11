@@ -86,8 +86,7 @@ func TestTechnicalVLESSBootstrapRetainsStandaloneBehavior(t *testing.T) {
 		[]*protocol.MemoryUser{scopeUser(id, "legacy@lab")}); err != nil {
 		t.Fatalf("standalone mode was changed by Stage-4 protection: %v", err)
 	}
-	if err := (&Instance{technicalProvisioning: true}).ValidateTechnicalVLESSBootstrap(nil);
-		!errors.Is(err, elxjournal.ErrUncertain) {
+	if err := (&Instance{technicalProvisioning: true}).ValidateTechnicalVLESSBootstrap(nil); !errors.Is(err, elxjournal.ErrUncertain) {
 		t.Fatalf("technical mode with no durable journal failed open: %v", err)
 	}
 }

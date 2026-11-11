@@ -16,7 +16,7 @@ import (
 )
 
 func TestOfflineTechnicalInspectionNeverMutatesUncertainJournal(t *testing.T) {
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS != "linux" {
 		t.Skip("durable journal requires Unix directory fsync")
 	}
 	path := filepath.Join(t.TempDir(), "operations.json")
