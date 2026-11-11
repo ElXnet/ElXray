@@ -15,16 +15,16 @@ import (
 )
 
 type technicalInspection struct {
-	StoreID string `json:"storeId"`
-	ProfileID string `json:"profileId"`
-	OperationID string `json:"operationId"`
-	Phase string `json:"phase"`
+	StoreID             string `json:"storeId"`
+	ProfileID           string `json:"profileId"`
+	OperationID         string `json:"operationId"`
+	Phase               string `json:"phase"`
 	AuthorityGeneration uint64 `json:"authorityGeneration"`
-	PolicyRevision uint64 `json:"policyRevision"`
-	DeniedGeneration uint64 `json:"deniedGeneration"`
-	Uncertain bool `json:"uncertain"`
-	RequiresIsolation bool `json:"requiresIsolation"`
-	MutationAllowed bool `json:"mutationAllowed"`
+	PolicyRevision      uint64 `json:"policyRevision"`
+	DeniedGeneration    uint64 `json:"deniedGeneration"`
+	Uncertain           bool   `json:"uncertain"`
+	RequiresIsolation   bool   `json:"requiresIsolation"`
+	MutationAllowed     bool   `json:"mutationAllowed"`
 }
 
 // inspect requires a separately obtained, exact Control-pinned store ID and

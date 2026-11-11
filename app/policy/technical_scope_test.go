@@ -26,10 +26,10 @@ func TestTechnicalVLESSScopeAcrossInbounds(t *testing.T) {
 	alias := uuid.MustParse("12345678-1234-0000-8def-123456789abc")
 	other := uuid.MustParse("12345678-1234-4abc-8def-123456789abd")
 	tests := []struct {
-		name string
-		inbounds []technicalInboundSnapshot
+		name      string
+		inbounds  []technicalInboundSnapshot
 		installed bool
-		want error
+		want      error
 	}{
 		{"clean prepare", []technicalInboundSnapshot{{tag: "primary"}, {tag: "backup"}}, false, nil},
 		{"own installed", []technicalInboundSnapshot{
