@@ -51,6 +51,15 @@ func TestOfflineTechnicalInspectionNeverMutatesUncertainJournal(t *testing.T) {
 		"-profile",profile,"-operation",install}
 	var out bytes.Buffer
 	if err := inspect(args,&out);err != nil {t.Fatal(err)}
+	// A concurrently running managed core holds the same exclusive
+	// policy lock. Offline inspection must refuse this TOCTOU window.
+	guard, err := lockManagedPolicyState(statePath)
+	if err != nil {t.Fatal(err)}
+	if err := inspect(args,&bytes.Buffer{});err == nil {
+		guard.Close()
+		t.Fatal("offline inspector ignored a live core lock")
+	}
+	if err := guard.Close();err != nil {t.Fatal(err)}
 	var result technicalInspection
 	if err := json.Unmarshal(out.Bytes(),&result);err != nil {t.Fatal(err)}
 	if result.Phase!="INSTALLING" || !result.Uncertain ||
