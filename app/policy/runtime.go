@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"math"
+	"os"
 	"slices"
 	"strings"
 	"time"
@@ -70,6 +71,19 @@ func (m *Instance) updateSubscription(u subscriptionrate.Update, cmd *elxjournal
 			cmd.AuthorityGeneration < binding.MinAuthorityGeneration ||
 			cmd.ExpectedRevision != u.ExpectedRevision || cmd.NewRevision != u.Revision ||
 			cmd.PayloadSHA256 != ManagedUpdateHash(u) {
+			if os.Getenv("ELXRAY_E2E_LEASE_DIAGNOSTICS") == "1" {
+				// Test-only boolean diagnostics. Never expose identities,
+				// signed material or raw operation metadata in RPC errors.
+				fmt.Fprintln(os.Stderr, "ELXRAY_E2E_MANAGED_SCOPE_MISMATCH:",
+					"binding", bound, "kind", cmd.Kind == "set-rate",
+					"node", cmd.NodeID == m.leaseNodeID.String(),
+					"resource", bound && cmd.ResourceID == binding.ResourceID.String(),
+					"executor", bound && cmd.ExecutorID == binding.ExecutorID.String(),
+					"epoch", bound && cmd.AuthorityGeneration >= binding.MinAuthorityGeneration,
+					"expected", cmd.ExpectedRevision == u.ExpectedRevision,
+					"revision", cmd.NewRevision == u.Revision,
+					"hash", cmd.PayloadSHA256 == ManagedUpdateHash(u))
+			}
 			return subscriptionrate.Policy{}, subscriptionrate.ErrUnauthorized
 		}
 		if prior, exists := m.opJournal.Get(cmd.OperationID); exists {
@@ -110,16 +124,27 @@ func (m *Instance) updateSubscription(u subscriptionrate.Update, cmd *elxjournal
 				binding, bound := m.leaseBindings[u.ID]
 				t, ok := m.leaseAccepted[u.ID]
 				deadline, active := limits.VerifiedLeaseDeadline()
-				if !ok || !active || !deadline.After(time.Now().Add(time.Second)) ||
-					!bound || t.Version != 3 || t.NodeID != m.leaseNodeID ||
+				if !bound {
+					return subscriptionrate.Policy{}, subscriptionrate.ErrUnauthorized
+				}
+				if !ok || !active || !deadline.After(time.Now().Add(time.Second)) {
+					return subscriptionrate.Policy{}, subscriptionrate.ErrLeaseCeiling
+				}
+				// Distinguish an untrusted operation/authority binding
+				// from an otherwise valid request awaiting a newer signed
+				// speed ceiling. Control may retry ONLY the latter.
+				if t.Version != 3 || t.NodeID != m.leaseNodeID ||
 					t.ResourceID != binding.ResourceID || t.ExecutorID != binding.ExecutorID ||
 					t.AuthorityGeneration < binding.MinAuthorityGeneration ||
 					t.AuthorityGeneration != m.leaseGeneration[u.ID] ||
 					t.Subscription != u.ID || t.Sequence <= 0 ||
-					m.leaseSeq[u.ID] != t.Sequence || t.NotAfter <= time.Now().Unix()+1 ||
+					m.leaseSeq[u.ID] != t.Sequence {
+					return subscriptionrate.Policy{}, subscriptionrate.ErrUnauthorized
+				}
+				if t.NotAfter <= time.Now().Unix()+1 ||
 					t.CeilingUp <= 0 || t.CeilingDown <= 0 ||
 					u.UplinkBps > uint64(t.CeilingUp) || u.DownlinkBps > uint64(t.CeilingDown) {
-					return subscriptionrate.Policy{}, subscriptionrate.ErrUnauthorized
+					return subscriptionrate.Policy{}, subscriptionrate.ErrLeaseCeiling
 				}
 			}
 		}

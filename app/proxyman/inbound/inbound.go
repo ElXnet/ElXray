@@ -2,20 +2,24 @@ package inbound
 
 import (
 	"context"
+	"os"
 	"sync"
 
 	"github.com/xtls/xray-core/app/proxyman"
 	"github.com/xtls/xray-core/common"
 	"github.com/xtls/xray-core/common/errors"
 	"github.com/xtls/xray-core/common/net"
+	"github.com/xtls/xray-core/common/protocol"
 	"github.com/xtls/xray-core/common/serial"
 	"github.com/xtls/xray-core/common/session"
 	"github.com/xtls/xray-core/core"
 	"github.com/xtls/xray-core/features/inbound"
+	featurepolicy "github.com/xtls/xray-core/features/policy"
 )
 
 // Manager manages all inbound handlers.
 type Manager struct {
+	owner            *core.Instance
 	access           sync.RWMutex
 	untaggedHandlers []inbound.Handler
 	taggedHandlers   map[string]inbound.Handler
@@ -25,6 +29,7 @@ type Manager struct {
 // New returns a new Manager for inbound handlers.
 func New(ctx context.Context, config *proxyman.InboundConfig) (*Manager, error) {
 	m := &Manager{
+		owner:          core.FromContext(ctx),
 		taggedHandlers: make(map[string]inbound.Handler),
 	}
 	return m, nil
@@ -35,26 +40,83 @@ func (*Manager) Type() interface{} {
 	return inbound.ManagerType()
 }
 
-// AddHandler implements inbound.Manager.
+// AddHandler implements inbound.Manager. In technical managed mode the
+// policy-side admission guard holds the signed mutation mutex through
+// registration/Start, preventing a stale handler from racing INSTALL/RETIRE.
 func (m *Manager) AddHandler(ctx context.Context, handler inbound.Handler) error {
-	m.access.Lock()
-	defer m.access.Unlock()
+	if handler == nil {
+		return errors.New("nil inbound handler")
+	}
+	register := func() error {
+		m.access.Lock()
+		defer m.access.Unlock()
 
-	tag := handler.Tag()
-	if len(tag) > 0 {
-		if _, found := m.taggedHandlers[tag]; found {
-			return errors.New("existing tag found: " + tag)
+		// Check the candidate against all currently published validators
+		// while holding inbound.Manager.access, after the policy-side
+		// subscription mutex has been obtained. This closes the remaining
+		// cross-handler AddHandler race even for static nontechnical users.
+		if os.Getenv("ELXRAY_TECHNICAL_PROVISIONING") == "1" {
+			if err := m.rejectManagedVLESSAliases(ctx, handler); err != nil {
+				return err
+			}
 		}
-		m.taggedHandlers[tag] = handler
-	} else {
-		m.untaggedHandlers = append(m.untaggedHandlers, handler)
+		tag := handler.Tag()
+		if tag != "" {
+			if _, found := m.taggedHandlers[tag]; found {
+				return errors.New("existing tag found: " + tag)
+			}
+			m.taggedHandlers[tag] = handler
+		} else {
+			m.untaggedHandlers = append(m.untaggedHandlers, handler)
+		}
+		if m.running {
+			if err := handler.Start(); err != nil {
+				// The failed handler is not an admitted/live inbound.
+				if tag != "" {
+					delete(m.taggedHandlers, tag)
+				} else {
+					m.untaggedHandlers = m.untaggedHandlers[:len(m.untaggedHandlers)-1]
+				}
+				_ = handler.Close()
+				return err
+			}
+		}
+		return nil
 	}
-
-	if m.running {
-		return handler.Start()
+	server := core.FromContext(ctx)
+	if m.owner != nil {
+		if server != nil && server != m.owner {
+			return errors.New("managed inbound context refers to another core")
+		}
+		server = m.owner
 	}
-
-	return nil
+	if server != nil {
+		if pm, ok := server.GetFeature(featurepolicy.ManagerType()).(interface {
+			WithTechnicalInboundRegistration(string, bool, func() []*protocol.MemoryUser, func() error) error
+		}); ok {
+			var users func() []*protocol.MemoryUser
+			isVLESS := false
+			if source, ok := handler.(interface{ ElXVLESSTechnicalUsers() any }); ok {
+				if raw := source.ElXVLESSTechnicalUsers(); raw != nil {
+					validator, ok := raw.(interface {
+						GetUsers(context.Context) []*protocol.MemoryUser
+					})
+					if !ok {
+						return errors.New("uninspectable managed VLESS users")
+					}
+					isVLESS = true
+					users = func() []*protocol.MemoryUser { return validator.GetUsers(ctx) }
+				}
+			}
+			return pm.WithTechnicalInboundRegistration(handler.Tag(), isVLESS, users, register)
+		}
+	}
+	// A managed technical node may not lose its policy extension and fall
+	// back to unsigned, unchecked handler mutation.
+	if os.Getenv("ELXRAY_TECHNICAL_PROVISIONING") == "1" {
+		return errors.New("managed technical inbound guard unavailable")
+	}
+	return register()
 }
 
 // GetHandler implements inbound.Manager.
@@ -69,24 +131,57 @@ func (m *Manager) GetHandler(ctx context.Context, tag string) (inbound.Handler, 
 	return handler, nil
 }
 
-// RemoveHandler implements inbound.Manager.
+// RemoveHandler implements inbound.Manager. No in-place listener removal
+// may make a durable technical PREPARED/INSTALLED identity disappear while
+// its Control operation or live connection remains authoritative.
 func (m *Manager) RemoveHandler(ctx context.Context, tag string) error {
 	if tag == "" {
 		return common.ErrNoClue
 	}
-
-	m.access.Lock()
-	defer m.access.Unlock()
-
-	if handler, found := m.taggedHandlers[tag]; found {
-		if err := handler.Close(); err != nil {
-			errors.LogWarningInner(ctx, err, "failed to close handler ", tag)
+	var removed inbound.Handler
+	remove := func() error {
+		m.access.Lock()
+		defer m.access.Unlock()
+		handler, found := m.taggedHandlers[tag]
+		if !found {
+			return common.ErrNoClue
 		}
+		// Unpublish under subscriptionMu -> access ordering, then close
+		// outside BOTH locks. A network flow's teardown may itself need
+		// subscription policy locks, as it does in signed RETIRE.
 		delete(m.taggedHandlers, tag)
+		removed = handler
 		return nil
 	}
-
-	return common.ErrNoClue
+	apply := func() error {
+		server := core.FromContext(ctx)
+		if m.owner != nil {
+			if server != nil && server != m.owner {
+				return errors.New("managed inbound removal refers to another core")
+			}
+			server = m.owner
+		}
+		if server != nil {
+			if pm, ok := server.GetFeature(featurepolicy.ManagerType()).(interface {
+				WithTechnicalInboundRemoval(string, func() error) error
+			}); ok {
+				return pm.WithTechnicalInboundRemoval(tag, remove)
+			}
+		}
+		if os.Getenv("ELXRAY_TECHNICAL_PROVISIONING") == "1" {
+			return errors.New("managed technical inbound removal guard unavailable")
+		}
+		return remove()
+	}
+	if err := apply(); err != nil {
+		return err
+	}
+	if removed != nil {
+		if err := removed.Close(); err != nil {
+			errors.LogWarningInner(ctx, err, "failed to close handler ", tag)
+		}
+	}
+	return nil
 }
 
 // ListHandlers implements inbound.Manager.

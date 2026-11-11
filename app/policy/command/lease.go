@@ -3,6 +3,8 @@ package command
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"os"
 
 	"google.golang.org/grpc/metadata"
 
@@ -58,6 +60,11 @@ func (r *leaseReceiver) renew(ctx context.Context, raw *wrapperspb.BytesValue) (
 		err = r.manager.RenewControlLease(lease)
 	}
 	if err != nil {
+		// Temporary opt-in diagnostic for disposable Linux two-core E2E.
+		// Never expose core-state details in the untrusted RPC response.
+		if os.Getenv("ELXRAY_E2E_LEASE_DIAGNOSTICS") == "1" {
+			fmt.Fprintln(os.Stderr, "ELXRAY_E2E_LEASE_FAILURE:", err)
+		}
 		return nil, status.Error(codes.PermissionDenied, "Control lease or independent store HWM not accepted")
 	}
 	return &emptypb.Empty{}, nil

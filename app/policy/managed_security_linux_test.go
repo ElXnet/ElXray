@@ -109,7 +109,7 @@ func TestManagedRatesRejectUnsignedRaiseBetweenLeaseRenewals(t *testing.T) {
 	mk := func(rev, up, down uint64, disabled bool) subscriptionrate.Update {
 		return subscriptionrate.Update{ID: "lab", ExpectedRevision: rev, Revision: rev + 1, UplinkBps: up, DownlinkBps: down, Disabled: disabled}
 	}
-	if _, err := m.UpdateSubscription(mk(1, 101, 200, false)); !errors.Is(err, subscriptionrate.ErrUnauthorized) {
+	if _, err := m.UpdateSubscription(mk(1, 101, 200, false)); !errors.Is(err, subscriptionrate.ErrLeaseCeiling) {
 		t.Fatalf("missing lease allowed rate increase: %v", err)
 	}
 	now := time.Now().Unix()
@@ -123,8 +123,13 @@ func TestManagedRatesRejectUnsignedRaiseBetweenLeaseRenewals(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, updown := range [][2]uint64{{101, 200}, {100, 201}, {101, 201}, {0, 200}} {
-		if _, err := m.UpdateSubscription(mk(1, updown[0], updown[1], false)); !errors.Is(err, subscriptionrate.ErrUnauthorized) {
-			t.Fatalf("in-lease ceiling exceeded for %v: %v", updown, err)
+		_, err := m.UpdateSubscription(mk(1, updown[0], updown[1], false))
+		expected := subscriptionrate.ErrLeaseCeiling
+		if updown[0] == 0 {
+			expected = subscriptionrate.ErrUnauthorized
+		}
+		if !errors.Is(err, expected) {
+			t.Fatalf("incorrect signed-rate rejection for %v: got %v, want %v", updown, err, expected)
 		}
 	}
 	for _, mutate := range []func(*ControlLease){
@@ -171,7 +176,7 @@ func TestManagedRatesRejectUnsignedRaiseBetweenLeaseRenewals(t *testing.T) {
 	// Losing the enforcement lease cannot be bypassed by incrementing the
 	// revision under an older, still-signed but no longer installed ticket.
 	limit.RequireLease()
-	if _, err := m.UpdateSubscription(mk(5, 101, 200, false)); !errors.Is(err, subscriptionrate.ErrUnauthorized) {
+	if _, err := m.UpdateSubscription(mk(5, 101, 200, false)); !errors.Is(err, subscriptionrate.ErrLeaseCeiling) {
 		t.Fatalf("rate increased after lease was invalidated: %v", err)
 	}
 }

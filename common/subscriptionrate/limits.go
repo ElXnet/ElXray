@@ -180,13 +180,35 @@ func (l *Limits) VerifiedLeaseDeadline() (time.Time, bool) {
 
 // RenewLease is called ONLY by the core's Ed25519-verifying policy manager.
 // The deadline is a wall-clock upper bound: replaying a signed ticket cannot
-// extend its original lifetime. It may only increase, never roll back.
+// extend its original lifetime. A newer, independently verified sequence may
+// carry the SAME second-resolution NotAfter; accept it without extending the
+// deadline. The policy manager enforces the signed monotonic sequence first.
+// A tripped or expired lease can never be re-admitted by an equal deadline.
 func (l *Limits) RenewLease(deadline time.Time) bool {
 	l.mu.Lock()
 	now := time.Now()
-	if !l.leaseRequired || !deadline.After(now) || !deadline.After(l.leaseDeadline) {
+	if !l.leaseRequired || !deadline.After(now) {
 		l.mu.Unlock()
 		return false
+	}
+	// Control's Ed25519 grant has an absolute NotAfter in whole seconds,
+	// whereas independent monotonic clock samples can differ by nanoseconds.
+	// Compare absolute wall-clock deadlines, not their reconstructed
+	// monotonic components. The signature and increasing sequence have
+	// already been checked by policy.Instance. An identical signed expiry
+	// must NOT move the previously enforced monotonic deadline at all.
+	if !l.leaseDeadline.IsZero() {
+		next := deadline.UnixNano()
+		old := l.leaseDeadline.UnixNano()
+		if next < old {
+			l.mu.Unlock()
+			return false
+		}
+		if next == old {
+			active := !l.leaseTripped && !l.leaseDue(now)
+			l.mu.Unlock()
+			return active
+		}
 	}
 	// An expired lease requires a fresh VPN handshake. Even if the watchdog
 	// has not yet fired, a late renewal must not resurrect old idle sockets.

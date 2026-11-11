@@ -107,7 +107,7 @@ func AddInboundHandler(server *Instance, config *InboundHandlerConfig) error {
 	if !ok {
 		return errors.New("not an InboundHandler")
 	}
-	if err := inboundManager.AddHandler(server.ctx, handler); err != nil {
+	if err := inboundManager.AddHandler(toContext(server.ctx, server), handler); err != nil {
 		return err
 	}
 	return nil

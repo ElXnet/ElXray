@@ -15,6 +15,7 @@ import (
 	"github.com/xtls/xray-core/app/reverse"
 	"github.com/xtls/xray-core/common"
 	"github.com/xtls/xray-core/common/buf"
+	"github.com/xtls/xray-core/common/elxjournal"
 	"github.com/xtls/xray-core/common/errors"
 	"github.com/xtls/xray-core/common/log"
 	"github.com/xtls/xray-core/common/mux"
@@ -25,6 +26,7 @@ import (
 	"github.com/xtls/xray-core/common/session"
 	"github.com/xtls/xray-core/common/signal"
 	"github.com/xtls/xray-core/common/task"
+	xrayuuid "github.com/xtls/xray-core/common/uuid"
 	"github.com/xtls/xray-core/core"
 	"github.com/xtls/xray-core/features"
 	"github.com/xtls/xray-core/features/dns"
@@ -173,8 +175,55 @@ func New(ctx context.Context, config *Config, dc dns.Client, validator vless.Val
 		}
 	}
 
-	// Register configured VLESS UUIDs before accepting flows. A durable
-	// denial is never cleared by re-registering a profile after restart.
+	// This check runs for EVERY inbound, before any listener starts.
+	// A static UUID (including a VLESS-normalized alias) must never shadow
+	// a durable PREPARED/INSTALLED/RETIRED technical identity or tombstone,
+	// even if the static account lives under a different inbound tag.
+	// It also protects inbound reconstruction outside the legacy API.
+	if guard, ok := handler.policyManager.(interface {
+		ValidateTechnicalVLESSBootstrap([]*protocol.MemoryUser) error
+	}); ok {
+		if err := guard.ValidateTechnicalVLESSBootstrap(validator.GetAll()); err != nil {
+			return nil, errors.New("managed VLESS static UUID shadows durable technical authority").Base(err)
+		}
+	}
+
+	// Managed technical users are durably installed, but the VLESS validator
+	// itself lives only in memory. Rehydrate exact INSTALLED identities before
+	// the inbound accepts traffic. A journal/core-inbound identity mismatch,
+	// static JSON duplicate or changed effective UUID fails the whole boot.
+	// Rehydration is never equivalent to owner/device admission.
+	if restorer, ok := handler.policyManager.(interface {
+		RecoveredTechnicalProfiles(string) ([]elxjournal.TechnicalProfile, error)
+	}); ok {
+		tag := ""
+		if inbound := session.InboundFromContext(ctx); inbound != nil {
+			tag = inbound.Tag
+		}
+		profiles, err := restorer.RecoveredTechnicalProfiles(tag)
+		if err != nil {
+			return nil, errors.New("failed closed while restoring managed VLESS technical profiles").Base(err)
+		}
+		for _, p := range profiles {
+			id, parseErr := uuid.Parse(p.ProfileID)
+			if parseErr != nil || id == uuid.Nil || handler.validator.Get(xrayuuid.UUID(id)) != nil ||
+				handler.validator.GetByEmail(p.Email) != nil {
+				return nil, errors.New("managed technical VLESS user conflicts with static configuration")
+			}
+			user := &protocol.MemoryUser{
+				Email: p.Email,
+				Account: &vless.MemoryAccount{
+					ID:   protocol.NewID(xrayuuid.UUID(id)),
+					Flow: p.Flow,
+				},
+			}
+			if err := handler.validator.Add(user); err != nil {
+				return nil, errors.New("managed VLESS identity recovery collision").Base(err)
+			}
+		}
+	}
+	// Register configured and rehydrated UUIDs before accepting flows.
+	// A durable denial is never cleared by re-registering a profile.
 	if tracker, ok := handler.policyManager.(policy.VLESSProfileManager); ok {
 		for _, user := range handler.validator.GetAll() {
 			if account, ok := user.Account.(*vless.MemoryAccount); ok {
@@ -243,6 +292,11 @@ func (h *Handler) Close() error {
 	}
 	return errors.Combine(common.Close(h.validator))
 }
+
+// ElXManagedVLESS identifies this concrete trusted VLESS inbound to the
+// proxyman adapter without importing the inbound package from app/policy.
+// It grants no access; signed install and device/owner checks remain separate.
+func (*Handler) ElXManagedVLESS() {}
 
 // AddUser implements proxy.UserManager.AddUser().
 func (h *Handler) AddUser(ctx context.Context, u *protocol.MemoryUser) error {
@@ -604,6 +658,16 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection s
 		}
 	default:
 		return errors.New("unknown request flow " + requestAddons.Flow)
+	}
+
+	// Technical preparation is not signed device/owner admission. This
+	// decision executes on the authenticated VLESS UUID before dispatching
+	// ANY payload, including reverse/Mux roots. The Stage-4 option is
+	// explicitly opt-in and retains old standalone behaviour by default.
+	if admission, ok := h.policyManager.(policy.TechnicalProfileAdmission); ok {
+		if !admission.TechnicalVLESSPayloadAuthorized(uuid.UUID(account.ID.UUID())) {
+			return errors.New("VLESS technical profile lacks signed device admission")
+		}
 	}
 
 	// Register the authenticated VLESS account itself, independently from

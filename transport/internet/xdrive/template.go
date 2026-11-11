@@ -295,7 +295,7 @@ func (s *templateStorage) invalidateToken() {
 }
 
 func (s *templateStorage) do(ctx context.Context, op *opTemplate, vars map[string]string, body []byte) (int, []byte, error) {
-	backoff := driveInitialBackoff
+	backoff := time.Duration(driveInitialBackoff.Load())
 	var lastErr error
 
 	url := op.URL

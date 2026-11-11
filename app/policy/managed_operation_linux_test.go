@@ -156,3 +156,44 @@ func TestManagedPolicyV1RollbackAndWrongStoreIDRefuseBoot(t *testing.T) {
 		})
 	}
 }
+
+func TestManagedLeaseCeilingRetryNeverMasksUntrustedOperation(t *testing.T) {
+	m, signer, node := newManagedTestPolicyWithJournal(t)
+	defer m.Close()
+	binding := m.leaseBindings["lab"]
+	now := time.Now().Unix()
+	lease := ControlLease{
+		Version: 3, NodeID: node, ResourceID: binding.ResourceID,
+		ExecutorID: binding.ExecutorID, AuthorityGeneration: 8,
+		Subscription: "lab", Sequence: 1, NotBefore: now, NotAfter: now + 15,
+		CeilingUp: 100, CeilingDown: 200,
+	}
+	lease.Signature = ed25519.Sign(signer, ControlLeaseTranscript(lease))
+	if err := m.RenewControlLeaseWithWitness(lease, testStoreWitness(m, lease, signer)); err != nil {
+		t.Fatal(err)
+	}
+	// First raise requires genuinely new signed Control capacity. The
+	// transaction cannot be recorded as applied or change the limiter.
+	raise := subscriptionrate.Update{
+		ID: "lab", ExpectedRevision: 1, Revision: 2,
+		UplinkBps: 101, DownlinkBps: 200,
+	}
+	command := testManagedOperation(m, node, uuid.NewString(), raise)
+	if _, err := m.UpdateManagedSubscription(raise, command); !errors.Is(err, subscriptionrate.ErrLeaseCeiling) {
+		t.Fatalf("valid but insufficient signed lease was misclassified: %v", err)
+	}
+	if _, found := m.opJournal.Get(command.OperationID); found {
+		t.Fatal("insufficient signed lease created a durable managed operation")
+	}
+	if got, err := m.GetSubscription("lab"); err != nil || got.Revision != 1 || got.UplinkBps != 100 {
+		t.Fatalf("failed signed raise mutated live rates: %+v %v", got, err)
+	}
+	// A forged Control hash cannot be retried by the agent as a benign
+	// ceiling race, even when the desired target rate is above the lease.
+	forged := command
+	forged.PayloadSHA256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	if _, err := m.UpdateManagedSubscription(raise, forged); !errors.Is(err, subscriptionrate.ErrUnauthorized) ||
+		errors.Is(err, subscriptionrate.ErrLeaseCeiling) {
+		t.Fatalf("forged Control operation was made retryable: %v", err)
+	}
+}

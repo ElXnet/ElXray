@@ -24,24 +24,37 @@ import (
 
 // Instance is an instance of Policy manager.
 type Instance struct {
-	unmanaged            *subscriptionrate.Limits
-	levels               map[uint32]*Policy
-	system               *SystemPolicy
-	subscriptions        map[string]*subscriptionrate.Limits
-	subscriptionMu       sync.Mutex
-	store                *policyStore
-	opJournal            *elxjournal.Journal
-	usageIncarnation     [16]byte
-	usageSequences       map[string]uint64
-	subscriptionPolicies map[string]subscriptionrate.Policy
-	profileGate          *sessionfence.Registry
-	leasePublicKey       ed25519.PublicKey
-	leaseNodeID          uuid.UUID
-	leaseBindings        map[string]leaseBinding
-	leaseGeneration      map[string]uint64
-	leaseSeq             map[string]int64
-	leaseAccepted        map[string]ControlLease
-	leaseCancel          context.CancelFunc
+	runtimeContext        context.Context
+	unmanaged             *subscriptionrate.Limits
+	levels                map[uint32]*Policy
+	system                *SystemPolicy
+	subscriptions         map[string]*subscriptionrate.Limits
+	subscriptionMu        sync.Mutex
+	store                 *policyStore
+	opJournal             *elxjournal.Journal
+	technicalProvisioning bool
+	usageIncarnation      [16]byte
+	usageSequences        map[string]uint64
+	subscriptionPolicies  map[string]subscriptionrate.Policy
+	profileGate           *sessionfence.Registry
+	leasePublicKey        ed25519.PublicKey
+	leaseNodeID           uuid.UUID
+	leaseBindings         map[string]leaseBinding
+	leaseGeneration       map[string]uint64
+	leaseSeq              map[string]int64
+	leaseAccepted         map[string]ControlLease
+	leaseCancel           context.CancelFunc
+}
+
+// TechnicalVLESSPayloadAuthorized is deliberately false for technical
+// provisioning mode: a Control-signed prepare/install grants no device
+// admission. Only a later authenticated owner/device proof may permit
+// payload. When the opt-in is absent, preserve the Stage-2/standalone path.
+func (m *Instance) TechnicalVLESSPayloadAuthorized(profileID uuid.UUID) bool {
+	if m == nil || profileID == uuid.Nil {
+		return false
+	}
+	return !m.technicalProvisioning
 }
 
 // New creates new Policy manager instance.
@@ -55,6 +68,13 @@ func New(ctx context.Context, config *Config) (*Instance, error) {
 		return nil, errors.New("ElX subscriptions require an explicit managed or standalone execution mode")
 	}
 	mode := os.Getenv("ELXRAY_MODE")
+	if option := os.Getenv("ELXRAY_TECHNICAL_PROVISIONING"); option != "" && option != "1" {
+		return nil, errors.New("unsupported ElXray technical provisioning mode")
+	}
+	if os.Getenv("ELXRAY_TECHNICAL_PROVISIONING") == "1" &&
+		(mode != "managed" || os.Getenv("ELXRAY_OP_JOURNAL") == "") {
+		return nil, errors.New("technical VLESS provisioning requires explicit managed mode with durable journal")
+	}
 	if mode != "" && mode != "managed" && mode != "standalone" {
 		return nil, errors.New("unsupported ElXray execution mode")
 	}
@@ -63,7 +83,7 @@ func New(ctx context.Context, config *Config) (*Instance, error) {
 	managedHints := []string{
 		"ELXRAY_REQUIRE_CONTROL_LEASE", "ELXRAY_CONTROL_LEASE_PUBLIC_KEY",
 		"ELXRAY_CONTROL_LEASE_NODE_UUID", "ELXRAY_CONTROL_LEASE_BINDINGS_FILE", "ELXRAY_OP_JOURNAL",
-		"ELXRAY_AGENT_UID", "ELXRAY_AGENT_GID",
+		"ELXRAY_AGENT_UID", "ELXRAY_AGENT_GID", "ELXRAY_TECHNICAL_PROVISIONING",
 	}
 	if mode != "managed" {
 		for _, key := range managedHints {
@@ -95,12 +115,14 @@ func New(ctx context.Context, config *Config) (*Instance, error) {
 		return nil, err
 	}
 	m := &Instance{
-		levels:               make(map[uint32]*Policy),
-		system:               config.System,
-		subscriptions:        subscriptions,
-		subscriptionPolicies: make(map[string]subscriptionrate.Policy),
-		usageSequences:       make(map[string]uint64),
-		profileGate:          sessionfence.New(),
+		runtimeContext:        ctx,
+		levels:                make(map[uint32]*Policy),
+		system:                config.System,
+		subscriptions:         subscriptions,
+		subscriptionPolicies:  make(map[string]subscriptionrate.Policy),
+		usageSequences:        make(map[string]uint64),
+		profileGate:           sessionfence.New(),
+		technicalProvisioning: os.Getenv("ELXRAY_TECHNICAL_PROVISIONING") == "1",
 	}
 	if config.RequireSubscription {
 		m.unmanaged = subscriptionrate.New(0, 0)

@@ -112,7 +112,13 @@ func (m *Instance) renewControlLease(t ControlLease, w *SignedStoreWitness) erro
 	// Convert the signed wall-clock expiry to a monotonic local deadline.
 	// Do not acknowledge a ticket until the limiter accepted that deadline.
 	// A no-op renewal or a tripped lease is not proof of live admission.
-	if !limits.RenewLease(time.Now().Add(time.Until(time.Unix(t.NotAfter, 0)))) {
+	// Anchor the absolute signed expiry to ONE clock sample. Calling
+	// time.Now() and time.Until() separately introduces nanosecond
+	// differences into the monotonic deadline for the SAME NotAfter second,
+	// making otherwise-valid newer signed sequences appear to regress.
+	clockSample := time.Now()
+	leaseDeadline := clockSample.Add(time.Unix(t.NotAfter, 0).Sub(clockSample))
+	if !limits.RenewLease(leaseDeadline) {
 		return errors.New("Control lease was not installed in live limiter")
 	}
 	if _, active := limits.VerifiedLeaseDeadline(); !active {
