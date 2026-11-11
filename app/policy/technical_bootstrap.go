@@ -85,7 +85,6 @@ func (m *Instance) ValidateTechnicalVLESSBootstrap(users []*protocol.MemoryUser)
 	return validateTechnicalVLESSBootstrap(users, profiles, m.opJournal.DeniedProfiles())
 }
 
-
 // validateTechnicalInboundRegistration is the last admission check before
 // publishing a handler. The constructed VLESS user set already includes
 // journal-rehydrated INSTALLED identities. Only that exact user may be

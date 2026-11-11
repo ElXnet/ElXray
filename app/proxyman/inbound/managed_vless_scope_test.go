@@ -21,7 +21,7 @@ func (h *stage4FakeVLESS) GetUsers(context.Context) []*protocol.MemoryUser { ret
 
 func staticManagedUser(id uuid.UUID, email string) *protocol.MemoryUser {
 	return &protocol.MemoryUser{
-		Email: email,
+		Email:   email,
 		Account: &vless.MemoryAccount{ID: protocol.NewID(xrayuuid.UUID(id))},
 	}
 }
@@ -36,13 +36,13 @@ func TestManagedHotReloadRejectsAliasesAcrossRunningVLESSInbounds(t *testing.T) 
 		taggedHandlers: map[string]featureinbound.Handler{
 			"existing": &stage4FakeVLESS{
 				stage4FakeHandler: &stage4FakeHandler{tag: "existing"},
-				users: []*protocol.MemoryUser{staticManagedUser(id, "existing@lab")},
+				users:              []*protocol.MemoryUser{staticManagedUser(id, "existing@lab")},
 			},
 		},
 	}
 	collision := &stage4FakeVLESS{
 		stage4FakeHandler: &stage4FakeHandler{tag: "candidate"},
-		users: []*protocol.MemoryUser{staticManagedUser(alias, "alias@lab")},
+		users:              []*protocol.MemoryUser{staticManagedUser(alias, "alias@lab")},
 	}
 	manager.access.Lock()
 	err := manager.rejectManagedVLESSAliases(context.Background(), collision)
@@ -52,7 +52,7 @@ func TestManagedHotReloadRejectsAliasesAcrossRunningVLESSInbounds(t *testing.T) 
 	}
 	safe := &stage4FakeVLESS{
 		stage4FakeHandler: &stage4FakeHandler{tag: "candidate"},
-		users: []*protocol.MemoryUser{staticManagedUser(uuid.New(), "other@lab")},
+		users:              []*protocol.MemoryUser{staticManagedUser(uuid.New(), "other@lab")},
 	}
 	manager.access.Lock()
 	err = manager.rejectManagedVLESSAliases(context.Background(), safe)

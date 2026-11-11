@@ -31,12 +31,20 @@ func managedInboundLab(t *testing.T) (*Instance, elxjournal.TechnicalProfile) {
 		uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
 	digest := sha256.Sum256([]byte("signed Control technical PREPARE"))
 	p := elxjournal.TechnicalProfile{
-		ProfileID: profile, OperationID: operation,
-		NodeID: node, ResourceID: resource, ExecutorID: executor,
-		SubscriptionID: "lab", Email: "device@lab", InboundTag: "vless-primary",
-		ProfileGeneration: 1, AuthorityGeneration: 9, PolicyRevision: 1,
-		NotAfterUnix: time.Now().Add(time.Hour).Unix(),
-		TranscriptSHA256: hex.EncodeToString(digest[:]), Phase: "PREPARED",
+		ProfileID:           profile,
+		OperationID:         operation,
+		NodeID:              node,
+		ResourceID:          resource,
+		ExecutorID:          executor,
+		SubscriptionID:      "lab",
+		Email:               "device@lab",
+		InboundTag:          "vless-primary",
+		ProfileGeneration:   1,
+		AuthorityGeneration: 9,
+		PolicyRevision:      1,
+		NotAfterUnix:        time.Now().Add(time.Hour).Unix(),
+		TranscriptSHA256:    hex.EncodeToString(digest[:]),
+		Phase:               "PREPARED",
 	}
 	if err := journal.BootstrapResource(resource, 1, 9); err != nil {
 		t.Fatal(err)
@@ -113,10 +121,10 @@ func TestManagedInstalledInboundMustMatchExactTagAndAccount(t *testing.T) {
 		t.Fatal("legitimate recovered inbound was not published exactly once")
 	}
 	cases := []struct {
-		name string
-		tag string
+		name    string
+		tag     string
 		isVLESS bool
-		users []*protocol.MemoryUser
+		users   []*protocol.MemoryUser
 	}{
 		{"wrong tag", "vless-shadow", true, valid()},
 		{"wrong email", p.InboundTag, true,

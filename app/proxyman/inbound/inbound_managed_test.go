@@ -13,10 +13,10 @@ import (
 )
 
 type stage4FakeHandler struct {
-	tag string
+	tag      string
 	startErr error
-	started bool
-	closed bool
+	started  bool
+	closed   bool
 }
 
 func (h *stage4FakeHandler) Tag() string { return h.tag }
@@ -64,7 +64,6 @@ func TestManagedHotReloadWithoutPolicyGuardFailsClosed(t *testing.T) {
 		t.Fatal("unauthorized handler entered the managed inbound registry")
 	}
 }
-
 
 type stage4LockProbe struct {
 	*stage4FakeHandler
