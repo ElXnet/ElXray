@@ -21,7 +21,7 @@ func validateTechnicalVLESSBootstrap(
 	profiles []elxjournal.TechnicalProfile,
 	denied map[string]uint64,
 ) error {
-	reserved := make(map[[16]byte]struct{}, len(profiles)+len(denied))
+	reserved := make(map[[16]byte]string, len(profiles)+len(denied))
 	for _, profile := range profiles {
 		id, err := uuid.Parse(profile.ProfileID)
 		if err != nil || id == uuid.Nil || id.String() != profile.ProfileID {
@@ -31,7 +31,7 @@ func validateTechnicalVLESSBootstrap(
 		if _, duplicate := reserved[effective]; duplicate {
 			return elxjournal.ErrCollision
 		}
-		reserved[effective] = struct{}{}
+		reserved[effective] = profile.ProfileID
 	}
 	for raw, generation := range denied {
 		id, err := uuid.Parse(raw)
@@ -39,8 +39,13 @@ func validateTechnicalVLESSBootstrap(
 			return elxjournal.ErrCorrupt
 		}
 		// A retired technical profile legitimately appears in BOTH the
-		// journal and denial set; never mistake that for journal corruption.
-		reserved[vless.ProcessUUID(xrayuuid.UUID(id))] = struct{}{}
+		// journal and denial set. However, another printed UUID with the
+		// same effective VLESS key is still a forbidden alias.
+		effective := vless.ProcessUUID(xrayuuid.UUID(id))
+		if original, exists := reserved[effective]; exists && original != raw {
+			return elxjournal.ErrCollision
+		}
+		reserved[effective] = raw
 	}
 	for _, user := range staticUsers {
 		if user == nil {

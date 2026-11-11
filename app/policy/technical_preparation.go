@@ -91,6 +91,10 @@ func (m *Instance) TechnicalProfileReadback(profileID string) (elxjournal.Techni
 	if err != nil || id == uuid.Nil || id.String() != profileID {
 		return elxjournal.TechnicalProfile{}, elxjournal.ErrInvalid
 	}
+	// Readback must not race a signed INSTALL or RETIRE. Its live VLESS
+	// identity scan shares the same lock as the mutation and receipt paths.
+	m.subscriptionMu.Lock()
+	defer m.subscriptionMu.Unlock()
 	profile, found := m.opJournal.TechnicalProfile(profileID)
 	if !found {
 		return elxjournal.TechnicalProfile{}, errors.New("technical VLESS profile not prepared")

@@ -65,6 +65,15 @@ func TestTechnicalVLESSBootstrapChecksTombstonesAndMalformedAccounts(t *testing.
 		nil); !errors.Is(err, elxjournal.ErrCollision) {
 		t.Fatalf("colliding technical journal entries accepted: %v", err)
 	}
+	if err := validateTechnicalVLESSBootstrap(nil, nil,
+		map[string]uint64{id.String(): 2, alias.String(): 3}); !errors.Is(err, elxjournal.ErrCollision) {
+		t.Fatalf("aliased permanent tombstones accepted: %v", err)
+	}
+	if err := validateTechnicalVLESSBootstrap(nil,
+		[]elxjournal.TechnicalProfile{{ProfileID: id.String()}},
+		map[string]uint64{id.String(): 2}); err != nil {
+		t.Fatalf("the same retired technical UUID and tombstone should coexist: %v", err)
+	}
 	if err := validateTechnicalVLESSBootstrap(nil, nil, nil); err != nil {
 		t.Fatalf("clean technical bootstrap refused: %v", err)
 	}
