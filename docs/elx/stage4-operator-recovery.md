@@ -13,7 +13,7 @@ authorize a replacement UUID. Never replay expired INSTALL/RETIRE tickets.
    `inspect-technical-recovery` read-only command. Retrieve the expected
    `store_id` from the **independent** Control database, not from the node.
 3. Run `go run ./cmd/elx-technical-inspect -journal /ABS/PATH/operations.json
-   -expect-store STORE_UUID -profile PROFILE_UUID -operation OP_UUID`.
+   -policy-state /ABS/PATH/policy.json -expect-store STORE_UUID -profile PROFILE_UUID -operation OP_UUID`.
    Output contains only IDs, journal phase, authority/revision, denial
    generation and `requiresIsolation`, never user email/credentials.
    Run with `-require-terminal` as a fail-closed deployment gate.
@@ -30,3 +30,8 @@ authorize a replacement UUID. Never replay expired INSTALL/RETIRE tickets.
 This tool is *inspection*, not a signed operator reconciliation protocol.
 A complete, independently attested abort/quarantine confirmation that can
 safely close PostgreSQL INTENT remains a release blocker for Stage 4.
+
+The inspector acquires the exact managed policy state's exclusive `.lock`
+using nonblocking Unix flock. It refuses a missing lock, an active core, or
+an unsupported platform rather than inspecting a concurrently mutating
+journal. It closes the descriptor without modifying policy, journal or anchor.

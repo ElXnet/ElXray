@@ -305,3 +305,20 @@ real-core scheduler test before moving this item to `TESTING`.
 The Stage-4 technical user **never** authorizes VPN payload without later
 device proof and owner assignment.
 
+
+## 2026-11-11 final implementation batch (PENDING paired CI)
+
+The core preflights normalized authentication UUID collisions across every
+currently registered VLESS inbound, before INSTALLING. It rechecks all
+inbounds after AddUser and refuses core-signed recovery proofs when a shadow
+alias exists. A failed post-install scan quarantines INSTALLING; it never
+pretends success. A RETIRE only signs absence after the effective UUID is
+absent globally, and the permanent tombstone remains durable.
+
+A read-only offline `cmd/elx-technical-inspect` validates the fsynced
+journal/anchor, original operation, independently pinned Control StoreID and
+an exclusive stopped-core policy lock. An `INSTALLING`/`RETIRING` state is
+operator isolation, not a successful repair. See
+`docs/elx/stage4-operator-recovery.md`. Independently signed offline
+operator-authorized quarantine/abort closure of the Control INTENT remains
+P0; do not merge or deploy before that protocol is designed and proven.

@@ -20,6 +20,13 @@ func TestOfflineTechnicalInspectionNeverMutatesUncertainJournal(t *testing.T) {
 		t.Skip("durable journal requires Unix directory fsync")
 	}
 	path := filepath.Join(t.TempDir(), "operations.json")
+	statePath := filepath.Join(filepath.Dir(path), "policy.json")
+	if err := os.WriteFile(statePath, []byte("managed state"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(statePath+".lock", nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	store, resource, node, executor, profile, prepare := uuid.NewString(),
 		uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
 	if err := elxjournal.Provision(path, store); err != nil { t.Fatal(err) }
@@ -40,7 +47,7 @@ func TestOfflineTechnicalInspectionNeverMutatesUncertainJournal(t *testing.T) {
 	if _, err := j.BeginTechnicalInstall(profile,install,hex.EncodeToString(digest[:]),"",1,1); err != nil {t.Fatal(err)}
 	imageBefore, err := os.ReadFile(path); if err != nil {t.Fatal(err)}
 	anchorBefore, err := os.ReadFile(path+".anchor"); if err != nil {t.Fatal(err)}
-	args := []string{"-journal",path,"-expect-store",store,
+	args := []string{"-journal",path,"-policy-state",statePath,"-expect-store",store,
 		"-profile",profile,"-operation",install}
 	var out bytes.Buffer
 	if err := inspect(args,&out);err != nil {t.Fatal(err)}
@@ -54,12 +61,12 @@ func TestOfflineTechnicalInspectionNeverMutatesUncertainJournal(t *testing.T) {
 		t.Fatal("operator terminal-state gate admitted uncertain INSTALL")
 	}
 	wrongStore := append([]string(nil), args...)
-	wrongStore[3]=uuid.NewString()
+	wrongStore[5]=uuid.NewString()
 	if err := inspect(wrongStore,&bytes.Buffer{});err == nil {
 		t.Fatal("foreign store accepted as independent Control witness")
 	}
 	wrongOperation := append([]string(nil), args...)
-	wrongOperation[7]=uuid.NewString()
+	wrongOperation[9]=uuid.NewString()
 	if err := inspect(wrongOperation,&bytes.Buffer{});err == nil {
 		t.Fatal("unrelated Control operation accepted")
 	}
@@ -71,7 +78,7 @@ func TestOfflineTechnicalInspectionNeverMutatesUncertainJournal(t *testing.T) {
 	if _, err := j.MarkTechnicalInstalled(profile,install);err != nil {t.Fatal(err)}
 	retire := uuid.NewString()
 	if _, err := j.BeginTechnicalRetire(profile,retire,hex.EncodeToString(digest[:]),2,1,1);err != nil {t.Fatal(err)}
-	args[7] = retire
+	args[9] = retire
 	out.Reset()
 	if err := inspect(args,&out);err != nil {t.Fatal(err)}
 	if err := json.Unmarshal(out.Bytes(),&result);err != nil {t.Fatal(err)}

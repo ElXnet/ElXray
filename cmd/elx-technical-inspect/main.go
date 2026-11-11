@@ -34,6 +34,7 @@ func inspect(args []string, output io.Writer) error {
 	flags := flag.NewFlagSet("elx-technical-inspect", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	path := flags.String("journal", "", "absolute durable managed journal path")
+	statePath := flags.String("policy-state", "", "absolute durable policy state to acquire its exclusive lock")
 	store := flags.String("expect-store", "", "independently pinned Control store UUID")
 	profile := flags.String("profile", "", "exact technical VLESS profile UUID")
 	operation := flags.String("operation", "", "original signed Control operation UUID")
@@ -41,10 +42,19 @@ func inspect(args []string, output io.Writer) error {
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if flags.NArg() != 0 || *path == "" || !validUUID(*store) ||
+	if flags.NArg() != 0 || *path == "" || *statePath == "" || !validUUID(*store) ||
 		!validUUID(*profile) || !validUUID(*operation) || output == nil {
 		return errors.New("absolute journal and exact store/profile/operation UUIDs required")
 	}
+	// Exclusively lock the same policy state lock that a managed core holds
+	// for its lifetime. Refuse inspection while a live or racing core may
+	// mutate users and journal state. Never create a missing lock as a
+	// speculative provision or silently run on an unsupported OS.
+	lock, err := lockManagedPolicyState(*statePath)
+	if err != nil {
+		return fmt.Errorf("managed core must be stopped and state lock available: %w", err)
+	}
+	defer lock.Close()
 	j, err := elxjournal.Open(*path)
 	if err != nil {
 		return fmt.Errorf("managed journal/anchor integrity failure: %w", err)
