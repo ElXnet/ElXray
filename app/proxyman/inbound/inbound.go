@@ -49,6 +49,15 @@ func (m *Manager) AddHandler(ctx context.Context, handler inbound.Handler) error
 		m.access.Lock()
 		defer m.access.Unlock()
 
+		// Check the candidate against all currently published validators
+		// while holding inbound.Manager.access, after the policy-side
+		// subscription mutex has been obtained. This closes the remaining
+		// cross-handler AddHandler race even for static nontechnical users.
+		if os.Getenv("ELXRAY_TECHNICAL_PROVISIONING") == "1" {
+			if err := m.rejectManagedVLESSAliases(ctx, handler); err != nil {
+				return err
+			}
+		}
 		tag := handler.Tag()
 		if tag != "" {
 			if _, found := m.taggedHandlers[tag]; found {
